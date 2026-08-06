@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #0b1020;
+  color: #e8ecf8;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+.overlay {
+  position: fixed;
+  inset: auto auto 2rem 2rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+.overlay h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 5vw, 3rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.overlay p {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  opacity: 0.55;
+}

@@ -1,6 +1,12 @@
 :root {
+  --ink: #f2f6fb;
+  --ink-dim: #a9b8cc;
+  --glass: rgba(12, 20, 32, 0.62);
+  --edge: rgba(180, 208, 240, 0.18);
+
   color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
 }
 
 * {
@@ -12,8 +18,11 @@ body,
 #root {
   height: 100%;
   margin: 0;
+}
+
+body {
+  overflow: hidden;
   background: #0b1020;
-  color: #e8ecf8;
 }
 
 canvas {
@@ -21,22 +30,140 @@ canvas {
   touch-action: none;
 }
 
-.overlay {
+/* --------------------------------------------------------------------- */
+/* Side panel                                                            */
+/* --------------------------------------------------------------------- */
+
+.panel {
   position: fixed;
-  inset: auto auto 2rem 2rem;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(370px, 88vw);
+  max-height: 100dvh;
+  padding: 26px 22px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.86), rgba(8, 14, 24, 0.5) 70%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   pointer-events: none;
-  user-select: none;
 }
 
-.overlay h1 {
+.panel > * {
+  pointer-events: auto;
+}
+
+.panel__head h1 {
   margin: 0;
-  font-size: clamp(1.75rem, 5vw, 3rem);
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
-.overlay p {
-  margin: 0.25rem 0 0;
-  font-size: 0.875rem;
-  opacity: 0.55;
+.panel__head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+.panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.entry:hover {
+  background: rgba(24, 38, 58, 0.78);
+  transform: translateX(3px);
+}
+
+.entry.is-active {
+  background: rgba(30, 48, 72, 0.9);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.entry__name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.entry__blurb {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+.reset {
+  padding: 10px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.reset:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* --------------------------------------------------------------------- */
+/* Floating 3D labels                                                    */
+/* --------------------------------------------------------------------- */
+
+.marker {
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  background: rgba(9, 16, 28, 0.72);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  transition: background 160ms ease;
+}
+
+.marker:hover,
+.marker.is-active {
+  background: var(--accent);
+  color: #0b1020;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    width: 100vw;
+    max-height: 46dvh;
+  }
 }

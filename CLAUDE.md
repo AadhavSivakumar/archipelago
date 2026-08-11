@@ -77,7 +77,7 @@ the work — follow these:
    already-zeroed value and animate 0 → 0, leaving the object invisible forever.
    Absolute start and end values make the timeline idempotent no matter how often
    the effect reruns. `fromTo()` is fine — it's only bare `from()` that infers.
-   See `src/scene/Islands.tsx`.
+   See `src/scene/Island.tsx`.
 
 7. **Tween after load.** Refs into a `useGLTF` result are null until the model
    resolves. Build the timeline inside `useGSAP` with the loaded object in the

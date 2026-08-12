@@ -31,6 +31,34 @@ canvas {
 }
 
 /* --------------------------------------------------------------------- */
+/* Shown in place of the canvas when the scene cannot start              */
+/* --------------------------------------------------------------------- */
+
+.scene-down {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  /* Clears the panel, which stays mounted outside the error boundary. */
+  padding: 40px 32px 40px min(410px, calc(88vw + 40px));
+  background: linear-gradient(180deg, #16233a, #0b1020);
+}
+
+.scene-down p {
+  max-width: 46ch;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+.scene-down p:first-child {
+  font-size: 18px;
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------------- */
 /* Side panel                                                            */
 /* --------------------------------------------------------------------- */
 
@@ -165,5 +193,11 @@ canvas {
   .panel {
     width: 100vw;
     max-height: 46dvh;
+  }
+
+  /* The panel occupies the top of the viewport here, so drop below it. */
+  .scene-down {
+    justify-content: flex-end;
+    padding: 24px 20px 32px;
   }
 }

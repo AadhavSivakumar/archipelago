@@ -1,5 +1,6 @@
 import { Suspense, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Scene } from './scene/Scene'
 import { DISTRICTS, type DistrictId } from './scene/districts'
 
@@ -11,16 +12,29 @@ export function App() {
 
   return (
     <>
-      <Canvas
-        shadows
-        dpr={[1, 2]}
-        camera={{ position: [0, 115, 180], fov: 42, near: 0.5, far: 800 }}
-        gl={{ antialias: true }}
+      {/*
+        The boundary wraps the canvas alone — see ErrorBoundary's own note. The
+        panel below stays mounted whatever the GPU does.
+      */}
+      <ErrorBoundary
+        fallback={
+          <div className="scene-down" role="status">
+            <p>This island needs WebGL, and your browser did not start it.</p>
+            <p>The territories are all still listed — try a different browser to walk them.</p>
+          </div>
+        }
       >
-        <Suspense fallback={null}>
-          <Scene focus={focus} onFocus={setFocus} />
-        </Suspense>
-      </Canvas>
+        <Canvas
+          shadows
+          dpr={[1, 2]}
+          camera={{ position: [0, 115, 180], fov: 42, near: 0.5, far: 800 }}
+          gl={{ antialias: true }}
+        >
+          <Suspense fallback={null}>
+            <Scene focus={focus} onFocus={setFocus} />
+          </Suspense>
+        </Canvas>
+      </ErrorBoundary>
 
       <aside className="panel">
         <header className="panel__head">

@@ -612,7 +612,14 @@ export function AnthropologicAlps({ d }: LandmarkProps) {
     [d],
   )
 
-  const summit = d.bumps![2]
+  // The cairn belongs on the highest peak. Deriving that from the bump list
+  // rather than indexing position 2 of it means retuning the relief carries the
+  // cairn along, and a district with no bumps falls back to its plateau instead
+  // of tripping a non-null assertion and taking the whole canvas down.
+  const summit = useMemo(() => {
+    const peaks = d.bumps ?? []
+    return peaks.length ? peaks.reduce((hi, b) => (b.h > hi.h ? b : hi)) : { dx: 0, dz: 0 }
+  }, [d])
   const summitY = groundAt(d, summit.dx, summit.dz)
 
   return (

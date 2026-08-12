@@ -9,7 +9,7 @@ const SUN: [number, number, number] = [46, 34, 26]
 
 type Props = {
   focus: DistrictId | null
-  onFocus: (id: DistrictId) => void
+  onFocus: (id: DistrictId | null) => void
 }
 
 export function Scene({ focus, onFocus }: Props) {

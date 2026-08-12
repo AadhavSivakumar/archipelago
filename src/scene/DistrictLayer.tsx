@@ -7,7 +7,7 @@ import { LANDMARKS } from './landmarks'
 
 type Props = {
   focus: DistrictId | null
-  onFocus: (id: DistrictId) => void
+  onFocus: (id: DistrictId | null) => void
 }
 
 /** How high above each plateau the floating label sits. */
@@ -73,9 +73,13 @@ export function Districts({ focus, onFocus }: Props) {
                 type="button"
                 className={`marker${focus === d.id ? ' is-active' : ''}`}
                 style={{ '--accent': d.accent } as React.CSSProperties}
+                // Toggles, like the panel entry does. Sending `d.id`
+                // unconditionally leaves an active marker looking pressed with
+                // no way to un-press it: React bails on the identical state, so
+                // the rig's dependencies never change and no flight is built.
                 onClick={(e) => {
                   e.stopPropagation()
-                  onFocus(d.id)
+                  onFocus(focus === d.id ? null : d.id)
                 }}
               >
                 {d.name}

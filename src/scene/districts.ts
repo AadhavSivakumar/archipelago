@@ -25,7 +25,11 @@ export type District = {
   padRadius: number
   /** Extra terrain roughness in the ring around the plateau. */
   relief: number
-  /** Additional peaks, offset from the district centre, applied after flattening. */
+  /**
+   * Additional peaks, offset from the district centre, applied after
+   * flattening. Order carries no meaning — the Alps landmark plants its cairn
+   * on whichever of these is tallest, so these can be retuned freely.
+   */
   bumps?: { dx: number; dz: number; h: number; r: number }[]
 }
 

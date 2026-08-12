@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
+import { prefersReducedMotion } from '../animations/gsap'
 import { DISTRICTS, districtCentre, type District, type DistrictId } from './districts'
 import { sampleHeight } from './terrain'
 
@@ -138,16 +139,12 @@ const COLONNADE = Array.from({ length: 14 }, (_, i) => {
   return [Math.cos(a) * 4.9, Math.sin(a) * 4.9] as const
 })
 
-function Islet({ angle }: { angle: number }) {
+/** Islet centres, in the orbiting group's local space. */
+const ISLETS = [0, 1, 2, 3].map((i) => {
+  const a = (i / 4) * Math.PI * 2
   const r = 8.8
-  return (
-    <group position={[Math.cos(angle) * r, Math.sin(angle * 1.7) * 1.8, Math.sin(angle) * r]}>
-      <mesh geometry={ISLET_ROCK} position={[0, -1.45, 0]} rotation={[Math.PI, 0, 0]} material={mat.darkStone} />
-      <mesh geometry={ISLET_TOP} material={mat.leafWarm} />
-      <mesh geometry={MONOLITH} position={[0, 1.1, 0]} material={ACCENT.ideology} />
-    </group>
-  )
-}
+  return [Math.cos(a) * r, Math.sin(a * 1.7) * 1.8, Math.sin(a) * r] as [number, number, number]
+})
 
 export function IdeologyIsles() {
   const orbit = useRef<THREE.Group>(null!)
@@ -161,22 +158,39 @@ export function IdeologyIsles() {
       <mesh geometry={STEP} scale={[6.7, 1, 6.7]} position={[0, 0.66, 0]} material={mat.stone} />
       <mesh geometry={STEP} scale={[6.1, 1, 6.1]} position={[0, 1.1, 0]} material={mat.marble} />
 
-      {COLONNADE.map(([x, z], i) => (
-        <group key={i} position={[x, 0, z]}>
-          <mesh geometry={COLUMN} position={[0, 3.72, 0]} material={mat.marble} />
-          <mesh geometry={CAPITAL} position={[0, 6.27, 0]} material={mat.marble} />
-        </group>
-      ))}
+      <Instances geometry={COLUMN} material={mat.marble} limit={COLONNADE.length}>
+        {COLONNADE.map(([x, z], i) => (
+          <Instance key={i} position={[x, 3.72, z]} />
+        ))}
+      </Instances>
+      <Instances geometry={CAPITAL} material={mat.marble} limit={COLONNADE.length}>
+        {COLONNADE.map(([x, z], i) => (
+          <Instance key={i} position={[x, 6.27, z]} />
+        ))}
+      </Instances>
 
       <mesh geometry={ENTABLATURE} position={[0, 6.77, 0]} material={mat.marble} />
       <mesh geometry={DOME} position={[0, 7.12, 0]} material={ACCENT.ideology} />
       <mesh geometry={FINIAL} position={[0, 12.6, 0]} material={mat.gold} />
       <mesh geometry={SPIRE} position={[0, 13.5, 0]} material={mat.gold} />
 
-      <group ref={orbit} position={[0, 7, 0]}>
-        {[0, 1, 2, 3].map((i) => (
-          <Islet key={i} angle={(i / 4) * Math.PI * 2} />
-        ))}
+      {/* noShadow: still rotating after the shadow map freezes. */}
+      <group ref={orbit} position={[0, 7, 0]} userData={{ noShadow: true }}>
+        <Instances geometry={ISLET_ROCK} material={mat.darkStone} limit={ISLETS.length}>
+          {ISLETS.map(([x, y, z], i) => (
+            <Instance key={i} position={[x, y - 1.45, z]} rotation={[Math.PI, 0, 0]} />
+          ))}
+        </Instances>
+        <Instances geometry={ISLET_TOP} material={mat.leafWarm} limit={ISLETS.length}>
+          {ISLETS.map((p, i) => (
+            <Instance key={i} position={p} />
+          ))}
+        </Instances>
+        <Instances geometry={MONOLITH} material={ACCENT.ideology} limit={ISLETS.length}>
+          {ISLETS.map(([x, y, z], i) => (
+            <Instance key={i} position={[x, y + 1.1, z]} />
+          ))}
+        </Instances>
       </group>
     </group>
   )
@@ -213,11 +227,14 @@ export function HistoricalHabitat() {
   return (
     <group>
       <group position={[-2, 0, -1]}>
-        {ZIGGURAT_STEPS.map((s, i) => (
-          <mesh key={i} geometry={UNIT_BOX} scale={[s.s, s.h, s.s]} position={[0, s.y, 0]} material={mat.sandstone} />
-        ))}
+        <Instances geometry={UNIT_BOX} material={mat.sandstone} limit={ZIGGURAT_STEPS.length + 1}>
+          {ZIGGURAT_STEPS.map((s, i) => (
+            <Instance key={i} scale={[s.s, s.h, s.s]} position={[0, s.y, 0]} />
+          ))}
+          {/* The cap slab shares geometry and material, so it rides along. */}
+          <Instance scale={[2.6, 0.25, 2.6]} position={[0, 7.0, 0]} />
+        </Instances>
         <mesh geometry={SHRINE} position={[0, 6.05, 0]} material={ACCENT.history} />
-        <mesh geometry={UNIT_BOX} scale={[2.6, 0.25, 2.6]} position={[0, 7.0, 0]} material={mat.sandstone} />
       </group>
 
       <group position={[5.0, 0, -3.2]}>
@@ -226,12 +243,16 @@ export function HistoricalHabitat() {
         <mesh geometry={OBELISK_CAP} rotation={[0, Math.PI / 4, 0]} position={[0, 8.65, 0]} material={mat.gold} />
       </group>
 
-      {RUINS.map((r, i) => (
-        <group key={i} position={[r.x, 0, r.z]}>
-          <mesh geometry={UNIT_BOX} scale={[1.2, 0.3, 1.2]} position={[0, 0.15, 0]} material={mat.stone} />
-          <mesh geometry={RUIN_COLUMN} scale={[1, r.h, 1]} position={[0, 0.3 + r.h / 2, 0]} material={mat.marble} />
-        </group>
-      ))}
+      <Instances geometry={UNIT_BOX} material={mat.stone} limit={RUINS.length}>
+        {RUINS.map((r, i) => (
+          <Instance key={i} scale={[1.2, 0.3, 1.2]} position={[r.x, 0.15, r.z]} />
+        ))}
+      </Instances>
+      <Instances geometry={RUIN_COLUMN} material={mat.marble} limit={RUINS.length}>
+        {RUINS.map((r, i) => (
+          <Instance key={i} scale={[1, r.h, 1]} position={[r.x, 0.3 + r.h / 2, r.z]} />
+        ))}
+      </Instances>
 
       <group position={[-0.5, 0, 5.9]}>
         <mesh geometry={ARCH_PIER} position={[-2.75, 2, 0]} material={mat.sandstone} />
@@ -247,11 +268,15 @@ export function HistoricalHabitat() {
 // Geographical Garden — armillary globe over a formal parterre
 // ===========================================================================
 
-const GLOBE = new THREE.SphereGeometry(3.2, 64, 48)
+// 64x48 was 6,016 triangles for a 3.2-unit sphere. 32x24 is 1,472 and reads
+// identically at the size it occupies on screen.
+const GLOBE = new THREE.SphereGeometry(3.2, 32, 24)
 const GLOBE_MAT = std({ color: '#2f6f9e', roughness: 0.45, metalness: 0.15 })
 const LANDMASS = new THREE.SphereGeometry(1, 32, 24)
 const LANDMASS_MAT = std({ color: '#4f9d5e', roughness: 0.8 })
-const RING = new THREE.TorusGeometry(4.05, 0.1, 20, 128)
+// Drawn three times (306-308). At tube radius 0.1 nobody can see 20 radial
+// segments: 5,120 triangles each becomes 1,024, saving 12,288 across the three.
+const RING = new THREE.TorusGeometry(4.05, 0.1, 8, 64)
 const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 40)
 const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 48)
 const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 28)
@@ -279,7 +304,8 @@ const CONTINENTS = (
   }
 })
 
-const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 14, 96))
+// 2,688 triangles each, three of them, for low garden hedges.
+const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 10, 48))
 const SPOKES = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2)
 
 export function GeographicalGarden({ d }: LandmarkProps) {
@@ -297,10 +323,29 @@ export function GeographicalGarden({ d }: LandmarkProps) {
 
       <group position={[0, 6.1, 0]}>
         <group ref={globe}>
+          {/*
+            Untagged on purpose. This sphere rotates about an axis through its
+            own centre, so its cast silhouette never changes — freezing its
+            shadow is exact, not an approximation. Tagging the whole group cost
+            a ~6-unit shadow ellipse on the parterre while the armillary rings
+            outside it kept casting, which read as a bug.
+          */}
           <mesh geometry={GLOBE} material={GLOBE_MAT} />
-          {CONTINENTS.map((c, i) => (
-            <mesh key={i} geometry={LANDMASS} material={LANDMASS_MAT} position={c.position} rotation={c.rotation} scale={c.scale} />
-          ))}
+          {/*
+            The decals do change silhouette (they stand ~13% proud of the
+            sphere), so they are excluded — via a wrapping group, never a
+            userData prop on <Instances>: drei spreads caller props over its own
+            `userData: { instances, limit, frames }`, and R3F assigns plain
+            objects wholesale, so that would delete `instances` and make
+            PositionMesh.raycast throw on every pointer move.
+          */}
+          <group userData={{ noShadow: true }}>
+            <Instances geometry={LANDMASS} material={LANDMASS_MAT} limit={CONTINENTS.length}>
+              {CONTINENTS.map((c, i) => (
+                <Instance key={i} position={c.position} rotation={c.rotation} scale={c.scale} />
+              ))}
+            </Instances>
+          </group>
         </group>
         {/* Armillary rings stay fixed while the globe turns inside them. */}
         <mesh geometry={RING} rotation={[Math.PI / 2, 0, 0]} material={mat.brass} />
@@ -317,23 +362,37 @@ export function GeographicalGarden({ d }: LandmarkProps) {
           material={mat.hedge}
         />
       ))}
-      {SPOKES.map((a, i) => (
-        <mesh
-          key={i}
-          geometry={UNIT_BOX}
-          scale={[2.2, 0.6, 0.4]}
-          position={[Math.cos(a) * 5.9, 0.3, Math.sin(a) * 5.9]}
-          rotation={[0, -a, 0]}
-          material={mat.hedge}
-        />
-      ))}
+      <Instances geometry={UNIT_BOX} material={mat.hedge} limit={SPOKES.length}>
+        {SPOKES.map((a, i) => (
+          <Instance
+            key={i}
+            scale={[2.2, 0.6, 0.4]}
+            position={[Math.cos(a) * 5.9, 0.3, Math.sin(a) * 5.9]}
+            rotation={[0, -a, 0]}
+          />
+        ))}
+      </Instances>
 
-      {cypresses.map((c, i) => (
-        <group key={i} position={c.position} scale={c.scale}>
-          <mesh geometry={CYPRESS_TRUNK} position={[0, 0.35, 0]} material={mat.wood} />
-          <mesh geometry={CYPRESS} position={[0, 2.5, 0]} material={mat.leaf} />
-        </group>
-      ))}
+      {/* The per-tree group is gone, so its scale has to be folded into the
+          children's offsets by hand — both sat on the group's Y axis. */}
+      <Instances geometry={CYPRESS_TRUNK} material={mat.wood} limit={cypresses.length}>
+        {cypresses.map((c, i) => (
+          <Instance
+            key={i}
+            position={[c.position[0], c.position[1] + 0.35 * c.scale, c.position[2]]}
+            scale={c.scale}
+          />
+        ))}
+      </Instances>
+      <Instances geometry={CYPRESS} material={mat.leaf} limit={cypresses.length}>
+        {cypresses.map((c, i) => (
+          <Instance
+            key={i}
+            position={[c.position[0], c.position[1] + 2.5 * c.scale, c.position[2]]}
+            scale={c.scale}
+          />
+        ))}
+      </Instances>
     </group>
   )
 }
@@ -350,7 +409,8 @@ const OBS_SLOT = new THREE.BoxGeometry(0.9, 3.3, 3.3)
 const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 24)
 
 const NUCLEUS = new THREE.SphereGeometry(0.85, 48, 32)
-const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 20, 128)
+// Also drawn three times (378-380), same reasoning as RING above.
+const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 8, 64)
 const ELECTRON = new THREE.SphereGeometry(0.24, 24, 18)
 
 const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 36)
@@ -374,7 +434,7 @@ function Atom() {
       <mesh geometry={UNIT_BOX} scale={[0.5, 2.4, 0.5]} position={[0, 1.7, 0]} material={mat.steel} />
       <group position={[0, 5.4, 0]}>
         <mesh geometry={NUCLEUS} material={ACCENT.science} />
-        <group ref={shell}>
+        <group ref={shell} userData={{ noShadow: true }}>
           <mesh geometry={ORBITAL} material={mat.steel} />
           <mesh geometry={ORBITAL} rotation={[Math.PI / 3, 0, 0]} material={mat.steel} />
           <mesh geometry={ORBITAL} rotation={[-Math.PI / 3, 0, 0]} material={mat.steel} />
@@ -390,6 +450,11 @@ function Atom() {
 function Lighthouse() {
   const lamp = useRef<THREE.PointLight>(null!)
   useFrame((state) => {
+    // Held steady for reduced motion. This one is not a rotation like the other
+    // ornaments — it swings a point light from 14 to 26 and back every ~2.9s,
+    // which is a luminance flash, and that is the part of "motion" that is an
+    // accessibility hazard rather than a flourish.
+    if (prefersReducedMotion()) return
     // Sweeping beacon, faked with intensity rather than a rotating spotlight.
     lamp.current.intensity = 14 + 12 * Math.pow(Math.sin(state.clock.elapsedTime * 1.1), 8)
   })
@@ -469,15 +534,11 @@ export function ScientificShores({ d }: LandmarkProps) {
       />
       {/* Posts hang a fixed distance below the deck — the sea floor here is ~20
           units down and following it would give each post a comic stilt. */}
-      {jetty.map((p, i) => (
-        <mesh
-          key={i}
-          geometry={UNIT_BOX}
-          scale={[0.34, 4.5, 0.34]}
-          position={[p.lx, -d.pad + 1.1 - 2.25, p.lz]}
-          material={mat.wood}
-        />
-      ))}
+      <Instances geometry={UNIT_BOX} material={mat.wood} limit={jetty.length}>
+        {jetty.map((p, i) => (
+          <Instance key={i} scale={[0.34, 4.5, 0.34]} position={[p.lx, -d.pad + 1.1 - 2.25, p.lz]} />
+        ))}
+      </Instances>
     </group>
   )
 }
@@ -501,12 +562,18 @@ const SEAT_TIERS = [0, 1, 2, 3].map((i) => {
   }
 })
 const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 56)
-const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 256, 40, 2, 3)
+// The single most tessellated object in the scene: 256x40x2 = 20,480 triangles
+// for a sculpture about three units across. 128x12 gives 3,072.
+const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 128, 12, 2, 3)
 const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 12)
 const CANVAS = new THREE.BoxGeometry(2.4, 1.8, 0.12)
 
 const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 18)
-const CANOPY = new THREE.SphereGeometry(1.45, 24, 18)
+// x22 instances in the grove, so this one multiplies: 816 triangles each was
+// 17,952 for the canopies alone. 16x12 brings that to 7,392 — a 59% cut that
+// still holds a round silhouette at the distance a district view parks at.
+// 12x10 was measurably faceted across 22 spheres at once.
+const CANOPY = new THREE.SphereGeometry(1.45, 16, 12)
 
 export function ArtisticArboretum({ d }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
@@ -532,7 +599,7 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
       <group position={[4.6, 0, -3.2]}>
         <mesh geometry={PLINTH_BASE} scale={[0.62, 1, 0.62]} position={[0, 0.35, 0]} material={mat.marble} />
         <mesh geometry={UNIT_BOX} scale={[1.1, 2.2, 1.1]} position={[0, 1.8, 0]} material={mat.marble} />
-        <mesh ref={knot} geometry={KNOT} position={[0, 4.9, 0]} material={ACCENT.art} />
+        <mesh ref={knot} geometry={KNOT} position={[0, 4.9, 0]} material={ACCENT.art} userData={{ noShadow: true }} />
       </group>
 
       <group position={[5.0, groundAt(d, 5.0, 3.4), 3.4]} rotation={[0, -0.9, 0]}>
@@ -585,15 +652,53 @@ const CHIMNEY = new THREE.BoxGeometry(0.32, 0.9, 0.32)
 /** A handful of chalets on the lower slopes. */
 function Village({ d }: { d: District }) {
   const houses = useMemo(() => scatter(d, 7, 6.5, 10.5, 0x71ce), [d])
+
+  /*
+    Instancing flattens the per-house group away, so anything the group used to
+    carry has to be applied per instance. Body and roof sat on its Y axis and
+    only need the scale folded in, but the chimney is offset in X and Z, so the
+    group's Y rotation genuinely moved it — that rotation is reapplied by hand
+    here. three's Y rotation maps (x, z) to (x cos + z sin, -x sin + z cos).
+  */
+  const chalets = useMemo(
+    () =>
+      houses.map((h, i) => {
+        const scale = 0.8 + (i % 3) * 0.12
+        const [hx, hy, hz] = h.position
+        const cos = Math.cos(h.rotation)
+        const sin = Math.sin(h.rotation)
+        return {
+          rotation: h.rotation,
+          scale,
+          body: [hx, hy + 0.75 * scale, hz] as [number, number, number],
+          roof: [hx, hy + 2.1 * scale, hz] as [number, number, number],
+          chimney: [
+            hx + (0.55 * cos + 0.6 * sin) * scale,
+            hy + 2.3 * scale,
+            hz + (-0.55 * sin + 0.6 * cos) * scale,
+          ] as [number, number, number],
+        }
+      }),
+    [houses],
+  )
+
   return (
     <group>
-      {houses.map((h, i) => (
-        <group key={i} position={h.position} rotation={[0, h.rotation, 0]} scale={0.8 + (i % 3) * 0.12}>
-          <mesh geometry={HOUSE_BODY} position={[0, 0.75, 0]} material={mat.wood} />
-          <mesh geometry={HOUSE_ROOF} position={[0, 2.1, 0]} rotation={[0, Math.PI / 4, 0]} material={mat.snow} />
-          <mesh geometry={CHIMNEY} position={[0.55, 2.3, 0.6]} material={mat.darkStone} />
-        </group>
-      ))}
+      <Instances geometry={HOUSE_BODY} material={mat.wood} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.body} rotation={[0, c.rotation, 0]} scale={c.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={HOUSE_ROOF} material={mat.snow} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.roof} rotation={[0, c.rotation + Math.PI / 4, 0]} scale={c.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={CHIMNEY} material={mat.darkStone} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.chimney} rotation={[0, c.rotation, 0]} scale={c.scale} />
+        ))}
+      </Instances>
     </group>
   )
 }
@@ -625,14 +730,25 @@ export function AnthropologicAlps({ d }: LandmarkProps) {
   return (
     <group>
       <group>
-        {henge.map((s, i) => (
-          <group key={i} position={[s.x, s.y, s.z]} rotation={[0, -s.a, 0]}>
-            <mesh geometry={STANDING_STONE} scale={[1, 0.8 + (i % 3) * 0.18, 1]} position={[0, 1.35, 0]} material={mat.stone} />
-            {i % 2 === 0 && (
-              <mesh geometry={LINTEL} position={[0, 2.95, 0]} rotation={[0, Math.PI / 2, 0]} material={mat.stone} />
-            )}
-          </group>
-        ))}
+        {/* Both offsets sat on the group's Y axis, so flattening the group only
+            costs adding its rotation to the lintel's own quarter turn. */}
+        <Instances geometry={STANDING_STONE} material={mat.stone} limit={henge.length}>
+          {henge.map((s, i) => (
+            <Instance
+              key={i}
+              position={[s.x, s.y + 1.35, s.z]}
+              rotation={[0, -s.a, 0]}
+              scale={[1, 0.8 + (i % 3) * 0.18, 1]}
+            />
+          ))}
+        </Instances>
+        <Instances geometry={LINTEL} material={mat.stone} limit={henge.length}>
+          {henge
+            .filter((_, i) => i % 2 === 0)
+            .map((s, i) => (
+              <Instance key={i} position={[s.x, s.y + 2.95, s.z]} rotation={[0, -s.a + Math.PI / 2, 0]} />
+            ))}
+        </Instances>
         <mesh geometry={STAGE} scale={[1.6, 1, 1.6]} position={[0, groundAt(d, 0, 0) + 0.16, 0]} material={mat.stone} />
       </group>
 
@@ -648,7 +764,7 @@ export function AnthropologicAlps({ d }: LandmarkProps) {
           />
         ))}
         <mesh geometry={FLAGPOLE} position={[1.6, 2.2, 0]} material={mat.steel} />
-        <mesh ref={banner} geometry={BANNER} position={[2.6, 3.6, 0]} material={ACCENT.anthropology} />
+        <mesh ref={banner} geometry={BANNER} position={[2.6, 3.6, 0]} material={ACCENT.anthropology} userData={{ noShadow: true }} />
       </group>
 
       <Village d={d} />

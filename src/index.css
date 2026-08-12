@@ -1,8 +1,16 @@
 :root {
   --ink: #f2f6fb;
-  --ink-dim: #a9b8cc;
-  --glass: rgba(12, 20, 32, 0.62);
+  /*
+    Was #a9b8cc. The panel gradient used to reach full transparency, so the last
+    entries composited over the <Sky> alone — against the fog colour #bcd2e4
+    that resolved to #4f5c6a, giving 3.39:1 where 4.5 is required. Lightening
+    the dim ink and holding the gradient opaque (below) fixes both ends of it.
+  */
+  --ink-dim: #c3d0e0;
+  --glass: rgba(12, 20, 32, 0.78);
   --edge: rgba(180, 208, 240, 0.18);
+  /* No --accent is in scope on .reset, so focus rings need a literal. */
+  --focus: #8fd6ff;
 
   color-scheme: dark;
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -22,12 +30,22 @@ body,
 
 body {
   overflow: hidden;
-  background: #0b1020;
+  /*
+    Matches the inline gradient in index.html. The two have to agree: this
+    stylesheet may land after that <style> block and would otherwise repaint the
+    boot screen from sky to near-black a frame before the canvas covers it.
+  */
+  background: linear-gradient(180deg, #9fc0dd 0%, #bcd2e4 44%, #1d5f8c 100%);
 }
 
 canvas {
   display: block;
   touch-action: none;
+}
+
+/* Landmark wrapper for the canvas. */
+.stage {
+  height: 100%;
 }
 
 /* --------------------------------------------------------------------- */
@@ -74,14 +92,61 @@ canvas {
   max-height: 100dvh;
   padding: 26px 22px;
   overflow-y: auto;
-  background: linear-gradient(180deg, rgba(8, 14, 24, 0.86), rgba(8, 14, 24, 0.5) 70%, transparent);
+  /*
+    Never reaches transparent. The old ramp hit 0 at 70%, so any entry past that
+    point was legible only by luck of whatever the camera happened to be showing
+    behind it.
+  */
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.93), rgba(8, 14, 24, 0.86) 72%, rgba(8, 14, 24, 0.68));
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   pointer-events: none;
 }
 
+/*
+  Firefox before 103 and any browser with the feature disabled gets no blur, so
+  the translucency above has nothing to sit on. Only the -webkit- prefix was
+  covered before, which is exactly backwards — that is the one Safari honours.
+*/
+@supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+  .panel {
+    background: linear-gradient(180deg, rgba(8, 14, 24, 0.97), rgba(8, 14, 24, 0.93));
+  }
+}
+
 .panel > * {
   pointer-events: auto;
+}
+
+/*
+  Visually hidden, still announced. clip-path over the legacy clip rect: it is
+  the current technique and does not force a stacking/layout quirk.
+*/
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+  border: 0;
+}
+
+/*
+  There was no focus style anywhere in this file. :focus-visible rather than
+  :focus so a pointer user does not get a ring on every click.
+
+  .marker is deliberately absent: those are aria-hidden and tabIndex={-1} by
+  design (see DistrictLayer), so they can never take focus, and a rule for them
+  would be dead CSS implying a keyboard path that does not exist. The panel is
+  the keyboard route to every action a marker offers.
+*/
+.entry:focus-visible,
+.reset:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .panel__head h1 {
@@ -144,6 +209,31 @@ canvas {
   color: var(--ink-dim);
 }
 
+/*
+  Mobile only — hidden on desktop, where the panel is always open. Declared out
+  here rather than inside the media query so the base state is unconditional.
+*/
+.panel__toggle {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.panel__toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .reset {
   padding: 10px;
   font: inherit;
@@ -160,6 +250,74 @@ canvas {
 .reset:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* --------------------------------------------------------------------- */
+/* District dossier                                                      */
+/* --------------------------------------------------------------------- */
+
+.dossier {
+  position: fixed;
+  right: 22px;
+  bottom: 26px;
+  /* Below .panel (10) so an expanded mobile sheet covers it, above the
+     in-scene labels (8) so a marker never lands on top of prose. */
+  z-index: 9;
+  width: min(340px, 40vw);
+  max-height: 72dvh;
+  padding: 20px 22px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(8, 14, 24, 0.88));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--edge);
+  border-top: 3px solid var(--accent);
+  border-radius: 12px;
+}
+
+.dossier__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.dossier__summary {
+  margin: 8px 0 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+.dossier__topics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dossier__topic {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 11px;
+  border-left: 1px solid var(--edge);
+}
+
+.dossier__name {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+}
+
+.dossier__note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
 }
 
 /* --------------------------------------------------------------------- */
@@ -189,15 +347,102 @@ canvas {
   color: #0b1020;
 }
 
-@media (max-width: 720px) {
-  .panel {
-    width: 100vw;
-    max-height: 46dvh;
+/*
+  The CSS half of the reduced-motion path; the scene's half lives in
+  animations/gsap.ts. Hover transforms and colour transitions are small, but
+  they are motion the visitor did not ask for.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .entry,
+  .marker {
+    transition: none;
   }
 
-  /* The panel occupies the top of the viewport here, so drop below it. */
+  .entry:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 720px) {
+  /*
+    Bottom sheet.
+
+    The panel used to sit at the top of the viewport covering 46dvh of the only
+    interaction surface at 86% opacity, with `.panel > * { pointer-events: auto }`
+    across the full width — so a drag begun anywhere in that band rotated
+    nothing at all. Anchored to the bottom and collapsed to a toggle, the canvas
+    gets essentially the whole screen and the control sits where a thumb is.
+
+    The <h1> stays visible in the collapsed state on purpose: `display: none`
+    takes it out of the accessibility tree, and a page whose only heading is
+    behind a disclosure is worse than a slightly taller sheet.
+  */
+  .panel {
+    top: auto;
+    bottom: 0;
+    gap: 12px;
+    width: 100vw;
+    max-height: 82dvh;
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(
+      0deg,
+      rgba(8, 14, 24, 0.97),
+      rgba(8, 14, 24, 0.94) 70%,
+      rgba(8, 14, 24, 0.86)
+    );
+    border-top: 1px solid var(--edge);
+    border-radius: 16px 16px 0 0;
+  }
+
+  /*
+    Opaque here, so nothing needs to be seen or dragged through it. The
+    none/auto split the desktop panel uses would leave the sheet's padding and
+    inter-child gaps passing touches to OrbitControls underneath.
+  */
+  .panel {
+    pointer-events: auto;
+  }
+
+  .panel__toggle {
+    display: flex;
+  }
+
+  /*
+    Fixed-size pills against a smaller projected island: at 390px wide the six
+    label anchors span only ~194px, so a full-size "Historical Habitat" pill is
+    about as wide as the entire cluster and neighbours collide.
+  */
+  .marker {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+
+  .panel__head h1 {
+    font-size: 19px;
+  }
+
+  .panel:not(.is-open) .panel__head p,
+  .panel:not(.is-open) .panel__list,
+  .panel:not(.is-open) .reset {
+    display: none;
+  }
+
+  /*
+    Clear of the collapsed sheet (toggle + heading is roughly 110px). When the
+    sheet is expanded it covers this instead, which is the right precedence —
+    the visitor asked for the list.
+  */
+  .dossier {
+    right: 12px;
+    left: 12px;
+    bottom: 122px;
+    width: auto;
+    max-height: 40dvh;
+  }
+
+  /* The panel is at the bottom here, so the fallback copy goes to the top. */
   .scene-down {
-    justify-content: flex-end;
-    padding: 24px 20px 32px;
+    justify-content: flex-start;
+    padding: 28px 20px 96px;
   }
 }

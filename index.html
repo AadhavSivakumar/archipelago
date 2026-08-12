@@ -2,11 +2,185 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>archipelago</title>
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to
+         anything but 0; the bottom sheet in index.css depends on it. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Archipelago</title>
+
+    <meta
+      name="description"
+      content="An interactive 3D island charting six territories of knowledge — ideology, history, geography, science, art and anthropology."
+    />
+    <meta name="theme-color" content="#0b1020" />
+
+    <!--
+      Inline SVG rather than a file in public/, to hold the same zero-CDN, no-
+      extra-request posture the scene keeps by building its environment from
+      Lightformers instead of fetching an HDRI.
+    -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%231d5f8c'/%3E%3Cpath d='M16 7l8 14H8z' fill='%238d9bb5'/%3E%3Cpath d='M16 7l2.8 4.9h-5.6z' fill='%23eef2f8'/%3E%3Cpath d='M0 22c4-2 7 1 10-1s6-1 9 1 8 0 13-2v12H0z' fill='%235f8f4e'/%3E%3C/svg%3E" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Archipelago" />
+    <meta property="og:title" content="Archipelago" />
+    <meta
+      property="og:description"
+      content="An interactive 3D island charting six territories of knowledge."
+    />
+    <!--
+      Deliberately no og:image and no og:url. Both must be absolute, and this
+      build derives its base path from GITHUB_REPOSITORY at build time, so the
+      origin is not known here — a hardcoded one goes stale on a rename and a
+      wrong absolute URL is worse than none. og:image additionally needs a real
+      committed raster; a data URI is not fetched by any scraper. Add both
+      together, alongside a public/og.png, when the deploy URL is settled.
+    -->
+    <meta name="twitter:card" content="summary" />
+
+    <!--
+      Inlined deliberately rather than left to index.css: the stylesheet arrives
+      with the bundle, and this markup exists precisely to cover the window
+      before the bundle lands. Nothing here may depend on a second request.
+
+      React's createRoot clears #root on its first commit, which is what removes
+      the block below — no teardown code needed.
+
+      The gradient is the scene's own sky-to-sea run (fog #bcd2e4, water
+      #1d5f8c), so the handover to the canvas is a continuation rather than a
+      cut.
+    -->
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: linear-gradient(180deg, #9fc0dd 0%, #bcd2e4 44%, #1d5f8c 100%);
+      }
+
+      #root {
+        height: 100%;
+      }
+
+      /*
+        Scoped here rather than on body on purpose. This <style> block outlives
+        the markup it styles — createRoot clears #root, not <head> — and a
+        font-family on `body` would beat the app's own stack in index.css
+        forever, since that one is declared on `:root` and loses to any
+        declaration on the element itself regardless of source order.
+      */
+      .boot {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #0b2033;
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+
+      .boot--noscript {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        padding: 0 28px;
+        background: linear-gradient(180deg, #9fc0dd 0%, #bcd2e4 44%, #1d5f8c 100%);
+      }
+
+      .boot--noscript p {
+        max-width: 46ch;
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.6;
+        text-align: center;
+        color: #24485f;
+      }
+
+      .boot__name {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .boot__bar {
+        width: 148px;
+        height: 2px;
+        overflow: hidden;
+        background: rgba(11, 32, 51, 0.18);
+        border-radius: 2px;
+      }
+
+      .boot__bar::after {
+        content: '';
+        display: block;
+        width: 38%;
+        height: 100%;
+        background: #0b2033;
+        border-radius: 2px;
+        animation: boot-slide 1.15s ease-in-out infinite;
+      }
+
+      .boot__note {
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: #24485f;
+      }
+
+      /*
+        translateX percentages resolve against the bar's own width, not the
+        track's. The bar is 38% of 148px = 56.24px, so it has fully cleared the
+        148px track at 148 / 56.24 = 263.16%. Ending past that buys nothing but
+        dead time — and under ease-in-out the overshoot decelerates into it, so
+        it costs far more of the cycle than of the distance.
+      */
+      @keyframes boot-slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(265%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot__bar::after {
+          width: 100%;
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        Inside #root, and absolutely positioned over the skeleton. Outside it
+        this was unreachable in the built site: #root is height:100%, so the
+        block began one full viewport down, and index.css sets
+        `body { overflow: hidden }` — which propagates to the viewport, so it
+        could not even be scrolled to. React clears #root on its first commit,
+        which removes this along with the skeleton.
+      -->
+      <noscript>
+        <div class="boot boot--noscript">
+          <div class="boot__name">Archipelago</div>
+          <p>
+            This is a 3D island, and drawing it needs JavaScript. Its six
+            territories are Ideology Isles, Historical Habitat, Geographical
+            Garden, Scientific Shores, Artistic Arboretum and Anthropologic Alps.
+          </p>
+        </div>
+      </noscript>
+
+      <div class="boot">
+        <div class="boot__name">Archipelago</div>
+        <div class="boot__bar"></div>
+        <div class="boot__note">Raising the island…</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

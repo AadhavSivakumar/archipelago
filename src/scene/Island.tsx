@@ -1,29 +1,64 @@
-import { useRef } from 'react'
+import { useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { EASE, gsap, useGSAP } from '../animations/gsap'
-import { ISLAND_GEOMETRY, ISLAND_MATERIAL } from './terrain'
+import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
+import { islandGeometry, islandOccluderGeometry, ISLAND_MATERIAL } from './terrain'
+import { uTime, WAVE_DISPLACE_CHUNK, WAVE_GLSL, WAVE_NORMAL_CHUNK } from '../shaders/water'
+
+type IslandProps = {
+  /**
+   * Owned by Scene, because the district labels raycast their occlusion against
+   * it — a label on the far side of the island has to know the landmass is in
+   * the way. See islandOccluderGeometry for why this is a proxy and not the
+   * mesh you can actually see.
+   */
+  occluderRef: RefObject<THREE.Mesh>
+  /** Skip the reveal: the visitor arrived pointed at a district already. */
+  deepLinked: boolean
+}
 
 /**
- * The landmass. GSAP owns `scale.y` for the intro reveal and nothing else
- * writes it, so the island grows out of the sea once and then stays put.
+ * The landmass. GSAP owns the group's `scale.y` for the intro reveal and
+ * nothing else writes it, so the island grows out of the sea once and stays put.
+ *
+ * The reveal drives the GROUP rather than the visible mesh so the invisible
+ * raycast proxy rises with it. Scaling only the mesh would leave labels
+ * occluding against a full-height mountain for the first two seconds, while the
+ * island the visitor can see is still flat.
  */
-export function Island() {
-  const ref = useRef<THREE.Mesh>(null!)
+export function Island({ occluderRef, deepLinked }: IslandProps) {
+  const group = useRef<THREE.Group>(null!)
+
+  // Both getters cache at module scope, so these are lookups rather than
+  // rebuilds — useMemo is here to say so at the call site.
+  const geometry = useMemo(() => islandGeometry(), [])
+  const occluder = useMemo(() => islandOccluderGeometry(), [])
 
   useGSAP(() => {
-    gsap.set(ref.current.scale, { y: 0.02 })
-    gsap.to(ref.current.scale, { y: 1, duration: 2.2, ease: EASE.entrance })
-  }, [])
+    const g = group.current
+    if (!g) return
+    // Already there — either because motion is unwelcome, or because the
+    // visitor followed a link to a district and the island growing out of the
+    // sea underneath them is not the shot they asked for.
+    if (REDUCED_MOTION || deepLinked) {
+      gsap.set(g.scale, { y: 1 })
+      return
+    }
+    gsap.set(g.scale, { y: 0.02 })
+    gsap.to(g.scale, { y: 1, duration: 2.2, ease: EASE.entrance })
+  }, [deepLinked])
 
   return (
-    <mesh
-      ref={ref}
-      geometry={ISLAND_GEOMETRY}
-      material={ISLAND_MATERIAL}
-      receiveShadow
-      castShadow
-    />
+    <group ref={group}>
+      <mesh geometry={geometry} material={ISLAND_MATERIAL} receiveShadow castShadow />
+      {/*
+        Never drawn — a raycast target only. three does not consult `visible`
+        when raycasting (Raycaster.intersect checks layers, Mesh.raycast never
+        reads it), and Mesh supplies a default material, which is all the
+        raycast needs. Being invisible also keeps it out of the shadow pass.
+      */}
+      <mesh ref={occluderRef} geometry={occluder} visible={false} />
+    </group>
   )
 }
 
@@ -36,20 +71,6 @@ export function Island() {
 const WATER_GEOMETRY = new THREE.PlaneGeometry(900, 900, 220, 220)
 WATER_GEOMETRY.rotateX(-Math.PI / 2)
 
-/** Shared with the injected shader below; advanced once per frame. */
-const uTime = { value: 0 }
-
-const WAVE_GLSL = /* glsl */ `
-  float waveHeight(vec2 p, float t) {
-    float h = 0.0;
-    h += 0.34 * sin(p.x * 0.16 + t * 0.9);
-    h += 0.26 * sin(p.y * 0.21 - t * 0.72);
-    h += 0.14 * sin((p.x + p.y) * 0.33 + t * 1.5);
-    h += 0.07 * sin((p.x - p.y) * 0.55 - t * 1.9);
-    return h;
-  }
-`
-
 const WATER_MATERIAL = new THREE.MeshStandardMaterial({
   color: '#1d5f8c',
   roughness: 0.08,
@@ -58,32 +79,13 @@ const WATER_MATERIAL = new THREE.MeshStandardMaterial({
   opacity: 0.93,
 })
 
-/**
- * Displacing 14k vertices on the CPU every frame would cost a buffer upload and
- * a normal recompute per frame. Injecting the wave into the standard material's
- * vertex stage keeps it on the GPU and — because the normal is derived
- * analytically from the same function — keeps the lighting correct.
- */
+// The wave itself now lives in src/shaders/water.ts, because the island's foam
+// band and the drifting boat have to agree with it exactly.
 WATER_MATERIAL.onBeforeCompile = (shader) => {
   shader.uniforms.uTime = uTime
   shader.vertexShader = `uniform float uTime;\n${WAVE_GLSL}\n${shader.vertexShader}`
-
-  shader.vertexShader = shader.vertexShader.replace(
-    '#include <beginnormal_vertex>',
-    /* glsl */ `
-      float e = 0.6;
-      float hC = waveHeight(position.xz, uTime);
-      float hX = waveHeight(position.xz + vec2(e, 0.0), uTime);
-      float hZ = waveHeight(position.xz + vec2(0.0, e), uTime);
-      vec3 objectNormal = normalize(vec3(-(hX - hC) / e, 1.0, -(hZ - hC) / e));
-    `,
-  )
-
-  // `hC` is still in scope here — beginnormal_vertex is emitted earlier in main().
-  shader.vertexShader = shader.vertexShader.replace(
-    '#include <begin_vertex>',
-    /* glsl */ `vec3 transformed = vec3(position.x, position.y + hC, position.z);`,
-  )
+  shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', WAVE_NORMAL_CHUNK)
+  shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', WAVE_DISPLACE_CHUNK)
 }
 
 export function Water() {

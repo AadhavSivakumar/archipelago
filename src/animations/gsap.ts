@@ -15,4 +15,39 @@ export const EASE = {
   smooth: 'power2.inOut',
 } as const
 
+/**
+ * Whether the visitor has asked their system for reduced motion.
+ *
+ * Read once at module scope rather than subscribed to. This value gates how
+ * timelines are *built*, so reacting to a mid-visit change would mean tearing
+ * down and rebuilding the opening sequence — a stranger experience than the one
+ * it set out to avoid. A reload picks it up.
+ *
+ * What it suppresses here is the large stuff: the camera flights, the island
+ * and district reveals, and the lighthouse's 14 -> 26 intensity pulse, which is
+ * a luminance flash rather than mere movement. The slow ornament rotations stay
+ * — they are small on screen and read as ambient life, not motion.
+ */
+const REDUCED_MOTION_QUERY =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null
+
+export const REDUCED_MOTION = REDUCED_MOTION_QUERY?.matches ?? false
+
+/**
+ * Live read of the same preference.
+ *
+ * The snapshot above is right for the one-shot decisions — the island and
+ * district reveals happen once, before anyone could plausibly change the
+ * setting. But the district flights and the lighthouse pulse run for as long as
+ * the page is open, and the CSS half of this feature is live by nature, so a
+ * frozen read there would leave the two halves disagreeing after a mid-session
+ * toggle. Reading `.matches` off an existing MediaQueryList is a property
+ * lookup, cheap enough for a useFrame body.
+ */
+export function prefersReducedMotion() {
+  return REDUCED_MOTION_QUERY?.matches ?? false
+}
+
 export { gsap, useGSAP }

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { uTime, WAVE_GLSL } from '../shaders/water'
 import { DISTRICTS, districtCentre } from './districts'
 
 export const ISLAND_RADIUS = 30
@@ -22,9 +23,32 @@ function smoothstep(edge0: number, edge1: number, x: number) {
 // every load and in every build.
 // ---------------------------------------------------------------------------
 
+/**
+ * Deterministic [0, 1) from an integer lattice point.
+ *
+ * An integer bit-mix rather than the usual `fract(sin(dot(p, k)) * 43758.5)`
+ * trick, because this is the hottest function in the whole load path: the build
+ * calls it about 2.23M times (48,841 vertices x ~7 fbm octaves x 4 lattice
+ * corners), and the sin version pays a transcendental plus a floor on every one
+ * of them, synchronously, before React mounts. Two xxhash primes scatter the
+ * coordinates, then a Murmur-style finalizer avalanches the result. No
+ * transcendentals at all.
+ *
+ * The two details that are load-bearing rather than decorative:
+ *
+ * - `Math.imul`, because plain `*` on these constants exceeds 2^53 and silently
+ *   drops the low bits that carry the entropy.
+ * - `+` to combine the two terms, NOT `^`. Both primes are odd, so XOR cancels
+ *   the sign-flipped high bits whenever the inputs share a trailing-zero count,
+ *   giving hash(x, y) === hash(-x, -y) across a third of point-reflected pairs
+ *   (6,688 duplicate values over a 201x201 lattice; addition gives zero). The
+ *   finalizer is a bijection, so it propagates that collision rather than
+ *   repairing it — avalanche downstream cannot fix a lossy combine upstream.
+ */
 function hash(xi: number, yi: number) {
-  const s = Math.sin(xi * 127.1 + yi * 311.7) * 43758.5453
-  return s - Math.floor(s)
+  let h = (Math.imul(xi, 374761393) + Math.imul(yi, 668265263)) | 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
 function noise2(x: number, y: number) {
@@ -188,10 +212,120 @@ function buildIslandGeometry() {
   return geo
 }
 
-export const ISLAND_GEOMETRY = buildIslandGeometry()
+/** Coarse enough to be cheap, fine enough to keep the silhouette honest. */
+const OCCLUDER_SEGMENTS = 64
+
+function buildOccluderGeometry() {
+  const geo = new THREE.PlaneGeometry(
+    TERRAIN_SIZE,
+    TERRAIN_SIZE,
+    OCCLUDER_SEGMENTS,
+    OCCLUDER_SEGMENTS,
+  )
+  geo.rotateX(-Math.PI / 2)
+
+  const position = geo.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < position.count; i++) {
+    position.setY(i, sampleHeight(position.getX(i), position.getZ(i)))
+  }
+  position.needsUpdate = true
+
+  // Both matter for raycast cost. Mesh.raycast tries a bounding-box reject
+  // before touching triangles, but guards it with `boundingBox !== null` — and
+  // nothing computes it unless asked, so without this the reject never fires.
+  geo.computeBoundingBox()
+  geo.computeBoundingSphere()
+  return geo
+}
+
+let occluderBuilt: THREE.PlaneGeometry | null = null
+
+/**
+ * A coarse stand-in for the island, used only as a raycast target.
+ *
+ * drei's `<Html occlude>` re-tests a label whenever its projected position
+ * moves more than 0.001 *pixels* — so every frame of every camera flight, every
+ * orbit drag, and the ~2s of OrbitControls damping that follows one. Against
+ * the display mesh that is 96,800 triangles times six labels, with no BVH:
+ * measured at 15-19ms of main-thread JS per frame, which is more than the
+ * entire 60fps budget spent answering a yes/no question.
+ *
+ * At 64x64 this is 8,192 triangles and about 1.7ms for all six. The silhouette
+ * is close enough that the verdict matches the display mesh nearly everywhere;
+ * where it disagrees, a label winks a frame early or late at a ridge line.
+ */
+export function islandOccluderGeometry() {
+  occluderBuilt ??= buildOccluderGeometry()
+  return occluderBuilt
+}
+
+let built: THREE.PlaneGeometry | null = null
+
+/**
+ * The island mesh, built on first request and cached.
+ *
+ * Be honest about what moving this off module scope does and does not buy.
+ * It does NOT by itself let anything paint sooner — React's initial render is
+ * synchronous, so the build still blocks the first frame; the static markup in
+ * index.html is what covers that window.
+ *
+ * What it does buy: importing this module no longer forces the build. That
+ * matters because landmarks.tsx imports `sampleHeight` from here, so the old
+ * module-scope constant meant merely referencing the height field pulled 49k
+ * vertices of noise along with it. It also puts the work behind one call site,
+ * which is what a Worker or a Suspense-throwing resource would replace.
+ */
+export function islandGeometry() {
+  built ??= buildIslandGeometry()
+  return built
+}
 
 export const ISLAND_MATERIAL = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 0.95,
   metalness: 0,
 })
+
+/**
+ * Foam along the waterline.
+ *
+ * The land/sea seam is the island's entire silhouette, and it was the one place
+ * where the two halves of the scene visibly disagreed: the coast is a
+ * build-time vertex-colour ramp baked into a static mesh, while the ocean
+ * beside it slides up and down every frame. Painting a foam band whose height
+ * is driven by the *same* wave function makes the shoreline advance and retreat
+ * with the swell instead of sitting still underneath it.
+ *
+ * Local position, not world. The island lives inside a group whose scale.y runs
+ * 0.02 -> 1 during the reveal, so world Y is only the terrain height once that
+ * has finished; `position.y` is the real height from the first frame.
+ */
+ISLAND_MATERIAL.onBeforeCompile = (shader) => {
+  shader.uniforms.uTime = uTime
+
+  shader.vertexShader = `varying vec3 vLocalPos;\n${shader.vertexShader}`.replace(
+    '#include <begin_vertex>',
+    '#include <begin_vertex>\n  vLocalPos = position;',
+  )
+
+  shader.fragmentShader = `uniform float uTime;\nvarying vec3 vLocalPos;\n${WAVE_GLSL}\n${shader.fragmentShader}`.replace(
+    '#include <color_fragment>',
+    /* glsl */ `
+      #include <color_fragment>
+      float surface = waveHeight(vLocalPos.xz, uTime);
+      /*
+        Half-width of the band. Note there is no clearance margin to the lowest
+        plateau, and it would be wrong to infer one from the district's pad
+        value: pad is the flatten TARGET, and the seabed term subtracts from the
+        result afterwards. Scientific Shores has the largest radius of the six, so that
+        subtraction bites hardest there — its centre actually samples about
+        -0.33, i.e. fractionally under water. That district sits in the foam by
+        construction, which is right for somewhere called Shores, but it means
+        widening this number pushes white inland rather than merely thickening
+        the coastline.
+      */
+      float foam = 1.0 - smoothstep(0.0, 1.1, abs(vLocalPos.y - surface));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 0.98), foam * 0.6);
+    `,
+  )
+}

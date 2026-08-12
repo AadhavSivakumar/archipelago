@@ -1,5 +1,18 @@
-import { Environment, Lightformer, OrbitControls, Sky } from '@react-three/drei'
+import { useRef, useState } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import {
+  Environment,
+  Lightformer,
+  OrbitControls,
+  PerformanceMonitor,
+  Sky,
+} from '@react-three/drei'
+import * as THREE from 'three'
+import { EASE, gsap, prefersReducedMotion, useGSAP } from '../animations/gsap'
+import { useIdle } from '../hooks/useIdle'
+import { Ambient } from './Ambient'
 import { CameraRig } from './CameraRig'
+import { frameScale } from './framing'
 import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
@@ -12,11 +25,122 @@ type Props = {
   onFocus: (id: DistrictId | null) => void
 }
 
+/**
+ * `dpr={[1, 2]}` on the Canvas is a clamp, not an adaptive range — it only
+ * becomes adaptive once something calls setDpr, and nothing did. On a retina
+ * display that meant rendering ~5.9M fragments every frame regardless of how
+ * the frame time was going, and those are expensive fragments: the ocean covers
+ * most of the screen with a full standard material lit by the PMREM probe plus
+ * four lights, and every lit fragment also takes a soft-shadow lookup.
+ *
+ * Driving dpr from the measured factor rather than a hard 2/1 flip keeps the
+ * change gradual, and leaves fast machines at full resolution.
+ */
+/** Radians per second-ish; three multiplies this by 2pi/60/60 internally. */
+const IDLE_SPEED = 0.28
+
+type OrbitApi = { autoRotate: boolean; autoRotateSpeed: number }
+
+/**
+ * A slow drift once the page is left alone.
+ *
+ * The highest impact per line in the whole scene: a dead-still frame reads as a
+ * screenshot, and the smallest continuous movement reads as a living world.
+ * OrbitControls has had `autoRotate` available all along; what it never had was
+ * anything deciding when to switch it on.
+ *
+ * Three conditions, and each one matters. Idle, or it fights the visitor.
+ * Unfocused, or it slides off the district they asked to look at. Not flying —
+ * because `controls.enabled = false` does NOT suppress autoRotate: three
+ * applies it inside update() with no such check, and CameraRig calls update()
+ * on every tween tick, so during a flight it would be a second writer on the
+ * camera.
+ */
+function IdleOrbit({ active }: { active: boolean }) {
+  const controls = useThree((s) => s.controls) as OrbitApi | null
+  const speed = useRef({ value: 0 })
+
+  useGSAP(() => {
+    if (!controls) return
+
+    if (!active || prefersReducedMotion()) {
+      // Off at once rather than ramped down. The ramp matters on the way in, so
+      // the drift starts imperceptibly; on the way out the camera simply stops,
+      // and anything lingering would be fighting a flight for the camera.
+      gsap.killTweensOf(speed.current)
+      speed.current.value = 0
+      controls.autoRotateSpeed = 0
+      controls.autoRotate = false
+      return
+    }
+
+    controls.autoRotate = true
+    gsap.to(speed.current, { value: IDLE_SPEED, duration: 2.6, ease: EASE.smooth })
+  }, [active, controls])
+
+  /*
+    three advances the auto-rotation by (2pi/60/60) * autoRotateSpeed once per
+    update() CALL, not per second — so handing it a constant makes the island
+    drift at twice the speed on a 120Hz display and half on a struggling one.
+    Scaling by delta*60 reproduces the 60Hz behaviour exactly and holds it
+    steady everywhere. The delta is clamped because returning to a backgrounded
+    tab delivers one enormous frame, which would otherwise snap the camera.
+  */
+  useFrame((_, delta) => {
+    if (controls) controls.autoRotateSpeed = speed.current.value * Math.min(delta, 1 / 30) * 60
+  })
+
+  return null
+}
+
+function AdaptiveDpr() {
+  const setDpr = useThree((s) => s.setDpr)
+  return (
+    <PerformanceMonitor
+      // Seeded at the top of the range. The default of 0.5 would drop
+      // resolution unconditionally a couple of seconds in — right through the
+      // reveal — and then staircase back up over the following ten.
+      factor={1}
+      onChange={({ factor }) => {
+        // Scale the panel's OWN ratio. Handing setDpr an absolute number
+        // derived from factor alone would supersample a 1x display up to 2x,
+        // quadrupling its fragment count in the name of saving fragments.
+        const native = Math.min(window.devicePixelRatio, 2)
+        setDpr(Math.max(1, Math.round(native * (0.5 + factor / 2) * 10) / 10))
+      }}
+    />
+  )
+}
+
 export function Scene({ focus, onFocus }: Props) {
+  // Held here so the labels can occlude against the landmass they sit on. This
+  // is the coarse proxy, not the display mesh — see islandOccluderGeometry.
+  const occluder = useRef<THREE.Mesh>(null!)
+
+  // The fog ramp is in world units, so it has to move with the camera. A phone
+  // pulls back to 1.5x (framing.ts) and would otherwise sit the whole island
+  // inside a ramp tuned for a desktop distance, greying it out.
+  const size = useThree((s) => s.size)
+  const scale = frameScale(size.width / size.height)
+
+  // Two renders per flight, not per frame — this is app state, not transform
+  // state, so React is the right place for it.
+  const [flying, setFlying] = useState(false)
+  const idle = useIdle()
+
+  /*
+    Captured at mount. Arriving on a shared #district link means CameraRig parks
+    at that district on frame one — so the reveals, which are keyed to mount
+    rather than to focus, would play out underneath a camera already pointed at
+    where their subject is going to be. Decided here so the landmass and the
+    landmarks cannot disagree about it.
+  */
+  const deepLinked = useRef(focus !== null).current
+
   return (
     <>
       <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
-      <fog attach="fog" args={['#bcd2e4', 70, 210]} />
+      <fog attach="fog" args={['#bcd2e4', 70 * scale, 210 * scale]} />
 
       {/*
         A procedural environment rather than an HDRI preset: drei's presets are
@@ -43,17 +167,23 @@ export function Scene({ focus, onFocus }: Props) {
         shadow-normalBias={0.06}
         shadow-camera-near={1}
         shadow-camera-far={160}
-        shadow-camera-left={-52}
-        shadow-camera-right={52}
-        shadow-camera-top={52}
-        shadow-camera-bottom={-52}
+        // Was ±52, covering 104 world units for an island of ISLAND_RADIUS 30
+        // whose furthest landmark reaches about 28. Tightening to ±42 spends
+        // the same 2048² on a smaller area — ~35% more texel density, free.
+        shadow-camera-left={-42}
+        shadow-camera-right={42}
+        shadow-camera-top={42}
+        shadow-camera-bottom={-42}
       />
 
-      <Island />
+      <Island occluderRef={occluder} deepLinked={deepLinked} />
       <Water />
-      <Districts focus={focus} onFocus={onFocus} />
+      <Ambient />
+      <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
 
-      <CameraRig focus={focus} />
+      <AdaptiveDpr />
+      <IdleOrbit active={idle && focus === null && !flying} />
+      <CameraRig focus={focus} onFlyingChange={setFlying} />
       <OrbitControls
         makeDefault
         enablePan={false}

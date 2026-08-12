@@ -137,13 +137,13 @@ export function districtCentre(d: District): [number, number] {
  * coast looking back at the island. Hand-tuned per-district offsets got this
  * wrong for the Alps, which ended up viewed from inside the mountain.
  */
-export function districtView(d: District) {
+export function districtView(d: District, scale = 1) {
   const [x, z] = districtCentre(d)
   const len = Math.hypot(x, z) || 1
   const ox = x / len
   const oz = z / len
   return {
-    position: { x: x + ox * 42, y: d.pad + 22, z: z + oz * 42 },
+    position: { x: x + ox * 42 * scale, y: d.pad + 22 * scale, z: z + oz * 42 * scale },
     target: { x, y: d.pad + 2, z },
   }
 }

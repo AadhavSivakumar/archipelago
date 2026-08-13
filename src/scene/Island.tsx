@@ -68,7 +68,7 @@ export function Island({ occluderRef, deepLinked }: IslandProps) {
 
 // Wide enough that its edge is always past the fog's far plane — otherwise the
 // horizon shows a square rim of ocean.
-const WATER_GEOMETRY = new THREE.PlaneGeometry(900, 900, 220, 220)
+const WATER_GEOMETRY = new THREE.PlaneGeometry(900, 900, 340, 340)
 WATER_GEOMETRY.rotateX(-Math.PI / 2)
 
 const WATER_MATERIAL = new THREE.MeshStandardMaterial({

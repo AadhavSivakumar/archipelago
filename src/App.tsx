@@ -127,8 +127,20 @@ export function App() {
             AdaptiveDpr's choice every time focus or the panel toggles. Seeding
             once here makes AdaptiveDpr the sole writer.
           */}
+          {/*
+            shadows="percentage" rather than a bare `shadows`, and this is not
+            cosmetic. The boolean makes R3F write PCFSoftShadowMap; three 0.185
+            has deprecated that and, on its first shadow render, warns and
+            reassigns `shadowMap.type = PCFShadowMap` itself. R3F's configure()
+            re-runs on every render of this component and re-writes
+            PCFSoftShadowMap, so `oldType !== type` is true every single time —
+            which sets `needsUpdate` and thaws the shadow map that DistrictLayer
+            deliberately froze once the reveal settled. Naming the type three is
+            going to land on anyway keeps configure() a no-op, so the freeze
+            holds. No visual change: three was already rendering PCF.
+          */}
           <Canvas
-            shadows
+            shadows="percentage"
             onCreated={({ setDpr }) => setDpr(Math.min(window.devicePixelRatio, 2))}
             camera={{ position: [0, 115, 180], fov: 42, near: 0.5, far: 800 }}
             gl={{ antialias: true }}

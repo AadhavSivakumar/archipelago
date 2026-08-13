@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   Environment,
@@ -17,8 +17,15 @@ import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
 
-/** Shared by the sky shader and the shadow-casting sun so they agree. */
-const SUN: [number, number, number] = [46, 34, 26]
+/**
+ * Shared by the sky shader and the shadow-casting sun so they agree.
+ *
+ * Same direction as before, moved ~3x further out. A directional light's
+ * position only sets its direction for shading, but it IS where the shadow
+ * camera sits — and at the old distance that camera could not enclose a world
+ * this size no matter how its bounds were set.
+ */
+const SUN: [number, number, number] = [141, 105, 80]
 
 type Props = {
   focus: DistrictId | null
@@ -80,7 +87,7 @@ function IdleOrbit({ active }: { active: boolean }) {
 
   /*
     three advances the auto-rotation by (2pi/60/60) * autoRotateSpeed once per
-    update() CALL, not per second — so handing it a constant makes the island
+    update() CALL, not per second — so handing it a constant makes the world
     drift at twice the speed on a 120Hz display and half on a struggling one.
     Scaling by delta*60 reproduces the 60Hz behaviour exactly and holds it
     steady everywhere. The delta is clamped because returning to a backgrounded
@@ -137,10 +144,26 @@ export function Scene({ focus, onFocus }: Props) {
   */
   const deepLinked = useRef(focus !== null).current
 
+  /*
+    The shadow camera is centred on the light's TARGET, and the default target
+    is the world origin — which is now a patch of open water. With the mainland
+    weighted to -Z, an origin-centred box spends tens of units on empty ocean on
+    one side while clipping the mainland's far corner on the other. Aiming at
+    roughly the centroid of the land lets a smaller map cover more of what
+    actually casts a shadow.
+  */
+  const sunTarget = useMemo(() => new THREE.Object3D(), [])
+
   return (
     <>
       <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
-      <fog attach="fog" args={['#bcd2e4', 70 * scale, 210 * scale]} />
+      {/*
+        Widened with the world. The mainland's far shore now sits ~170 units
+        from the home camera, and it should read as receding coastline rather
+        than as a hard edge — which is also what hides the terrain plane's
+        boundary behind it.
+      */}
+      <fog attach="fog" args={['#bcd2e4', 110 * scale, 340 * scale]} />
 
       {/*
         A procedural environment rather than an HDRI preset: drei's presets are
@@ -157,23 +180,30 @@ export function Scene({ focus, onFocus }: Props) {
 
       <ambientLight intensity={0.35} />
       <hemisphereLight args={['#cfe4ff', '#4a5a44', 0.6]} />
+      <primitive object={sunTarget} position={[10, 0, -28]} />
       <directionalLight
         castShadow
+        target={sunTarget}
         position={SUN}
         intensity={2.8}
         color="#fff2dc"
-        shadow-mapSize={[2048, 2048]}
+        // 3072 rather than 4096: a 4096 map is ~128MB resident, two thirds of
+        // it a colour attachment nothing samples, and it is re-rendered every
+        // frame for the ~3s before the freeze. At 3072 over the 200-unit box
+        // below that is still ~15 texels per world unit — close to the 24 the
+        // old single island had at 2048 over 84 units.
+        shadow-mapSize={[3072, 3072]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.06}
-        shadow-camera-near={1}
-        shadow-camera-far={160}
-        // Was ±52, covering 104 world units for an island of ISLAND_RADIUS 30
-        // whose furthest landmark reaches about 28. Tightening to ±42 spends
-        // the same 2048² on a smaller area — ~35% more texel density, free.
-        shadow-camera-left={-42}
-        shadow-camera-right={42}
-        shadow-camera-top={42}
-        shadow-camera-bottom={-42}
+        // Near/far are measured from the light, which now sits ~190 units out.
+        shadow-camera-near={60}
+        shadow-camera-far={340}
+        // ±100 about the aimed target above, which encloses the land: islands
+        // reach x ±69 and the mainland runs to z -101 before the rim fade.
+        shadow-camera-left={-100}
+        shadow-camera-right={100}
+        shadow-camera-top={100}
+        shadow-camera-bottom={-100}
       />
 
       <Island occluderRef={occluder} deepLinked={deepLinked} />
@@ -189,8 +219,12 @@ export function Scene({ focus, onFocus }: Props) {
         enablePan={false}
         enableDamping
         dampingFactor={0.06}
-        minDistance={14}
-        maxDistance={110}
+        // The home framing alone sits at ~121 units out now, so the old 110
+        // ceiling would have clamped the camera before it ever arrived.
+        minDistance={18}
+        // Home is ~140 units out, and framing.ts pulls back up to 2x on a
+        // portrait phone, so the ceiling has to clear both.
+        maxDistance={320}
         maxPolarAngle={Math.PI / 2.15}
       />
     </>

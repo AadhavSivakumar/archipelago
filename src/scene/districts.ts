@@ -1,5 +1,3 @@
-const DEG = Math.PI / 180
-
 export type DistrictId =
   | 'ideology'
   | 'history'
@@ -16,10 +14,27 @@ export type District = {
   color: string
   /** Landmark highlight colour, also used by the overlay. */
   accent: string
-  /** Bearing around the island centre. */
-  angle: number
-  /** Distance from the island centre. */
-  radius: number
+  /**
+   * World position of the district centre.
+   *
+   * Explicit coordinates rather than the bearing-and-radius this used to carry.
+   * That polar form only made sense while there was one island and the six
+   * districts were spaced evenly around it; an archipelago has no single centre
+   * to be at a bearing from, and the islands are placed for composition rather
+   * than symmetry.
+   */
+  x: number
+  z: number
+  /**
+   * Bearing, in radians, pointing from the district out toward open water —
+   * (cos, sin) maps to (x, z).
+   *
+   * Was derived from the direction away from the island's centre, which is
+   * meaningless now that each district IS its own island. It decides where the
+   * camera parks when the district is focused, and which way Scientific Shores
+   * runs its jetty, so it has to point at water rather than at a neighbour.
+   */
+  seaward: number
   /** Height of the flattened plateau the landmark stands on. */
   pad: number
   padRadius: number
@@ -34,10 +49,17 @@ export type District = {
 }
 
 /**
- * Ordered as presented in the overlay. Angles are spaced 60° apart so the six
- * plateaus sit evenly around the landmass without their reliefs overlapping.
- * The camera starts on the +Z side, so the Alps sit at 270° (far side) where
- * their peaks frame the scene instead of hiding it.
+ * Ordered as presented in the overlay.
+ *
+ * The camera looks from +Z toward -Z, so the layout reads front to back:
+ * open ocean nearest the viewer, five islands staggered through the middle
+ * ground, and the mainland spanning the far edge. The Alps are the one district
+ * not on an island of their own — they rise out of the mainland as a range,
+ * which is both what mountains do and what gives the composition its backdrop.
+ *
+ * Island extents live in terrain.ts; these are the centres the plateaus and
+ * landmarks sit on. The two are checked against each other by eye and by the
+ * landmass survey — every district must land on its own separate island.
  */
 export const DISTRICTS: District[] = [
   {
@@ -47,8 +69,9 @@ export const DISTRICTS: District[] = [
       'Chart the courses of belief systems, from logical reason and ancient myths to divine doctrines.',
     color: '#c2a03f',
     accent: '#f2cf6b',
-    angle: 330 * DEG,
-    radius: 16,
+    x: -46,
+    z: -22,
+    seaward: 2.1,
     pad: 7.2,
     padRadius: 8,
     relief: 2.2,
@@ -60,8 +83,9 @@ export const DISTRICTS: District[] = [
       'Journey through the annals of world history and see how the past shapes the present.',
     color: '#b0693c',
     accent: '#e8a06a',
-    angle: 210 * DEG,
-    radius: 15.5,
+    x: 42,
+    z: -24,
+    seaward: 0.93,
     pad: 8.4,
     padRadius: 7.5,
     relief: 2.6,
@@ -73,8 +97,9 @@ export const DISTRICTS: District[] = [
       "Cultivate your knowledge of Earth's landscapes, from towering mountains to sprawling cities.",
     color: '#4f9d69',
     accent: '#86dda3',
-    angle: 150 * DEG,
-    radius: 15,
+    x: 0,
+    z: -10,
+    seaward: 1.35,
     pad: 4.6,
     padRadius: 7.5,
     relief: 1.8,
@@ -86,8 +111,9 @@ export const DISTRICTS: District[] = [
       'Explore the realms of science, from the logic of mathematics and biology to technology, engineering, and the cosmos.',
     color: '#3f7fa6',
     accent: '#8fd6ff',
-    angle: 90 * DEG,
-    radius: 17.5,
+    x: 44,
+    z: 20,
+    seaward: 0.64,
     pad: 2.0,
     padRadius: 8,
     relief: 1.1,
@@ -99,8 +125,9 @@ export const DISTRICTS: District[] = [
       'Journey through groves of creativity, from painting, literature, and music to fashion, architecture, and interactive entertainment.',
     color: '#9c5390',
     accent: '#e79ad8',
-    angle: 30 * DEG,
-    radius: 15,
+    x: -40,
+    z: 22,
+    seaward: 2.16,
     pad: 5.4,
     padRadius: 7.5,
     relief: 2.0,
@@ -112,8 +139,9 @@ export const DISTRICTS: District[] = [
       'Scale the peaks of human society, from culture and politics to business, law, wellness, and cuisine.',
     color: '#8d9bb5',
     accent: '#d8e4f7',
-    angle: 270 * DEG,
-    radius: 12.5,
+    x: -6,
+    z: -70,
+    seaward: 1.57,
     pad: 14.5,
     padRadius: 5,
     relief: 4.5,
@@ -128,23 +156,22 @@ export const DISTRICTS: District[] = [
 
 /** Horizontal centre of a district, as [x, z]. */
 export function districtCentre(d: District): [number, number] {
-  return [Math.cos(d.angle) * d.radius, Math.sin(d.angle) * d.radius]
+  return [d.x, d.z]
 }
 
 /**
- * Where the camera parks when a district is focused: outward along the
- * district's own bearing and above it, so the framing is always from off the
- * coast looking back at the island. Hand-tuned per-district offsets got this
- * wrong for the Alps, which ended up viewed from inside the mountain.
+ * Where the camera parks when a district is focused: out along the district's
+ * seaward bearing and above it, so the framing is always from off the coast
+ * looking back at the land. Each bearing is chosen to have open water behind
+ * the camera — with the islands scattered, a bearing that merely pointed away
+ * from the world origin would put the camera inside a neighbour.
  */
 export function districtView(d: District, scale = 1) {
-  const [x, z] = districtCentre(d)
-  const len = Math.hypot(x, z) || 1
-  const ox = x / len
-  const oz = z / len
+  const ox = Math.cos(d.seaward)
+  const oz = Math.sin(d.seaward)
   return {
-    position: { x: x + ox * 42 * scale, y: d.pad + 22 * scale, z: z + oz * 42 * scale },
-    target: { x, y: d.pad + 2, z },
+    position: { x: d.x + ox * 42 * scale, y: d.pad + 22 * scale, z: d.z + oz * 42 * scale },
+    target: { x: d.x, y: d.pad + 2, z: d.z },
   }
 }
 

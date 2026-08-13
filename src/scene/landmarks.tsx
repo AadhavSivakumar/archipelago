@@ -78,13 +78,28 @@ function scatter(d: District, count: number, rMin: number, rMax: number, seed: n
     const a = rand() * Math.PI * 2
     let r = rMin + rand() * (rMax - rMin)
 
-    // The coastline wobbles, so a radius that is inland on one bearing is open
-    // water on another. Walk back toward the district centre until the ground is
-    // properly above the waterline rather than trusting the radius.
+    /*
+      The coastline wobbles, so a radius that is inland on one bearing is open
+      water on another. Walk back toward the district centre until the ground is
+      both above the waterline AND flat enough to stand a building on.
+
+      The slope test is not optional. Height alone stops the walk the moment it
+      finds dry ground — which, on a shore, is partway down the face of it.
+      Measured on an earlier version of this terrain, that put four of the Alps'
+      seven chalets on slopes of 69 to 84 degrees, with up to eighteen units of
+      height across a single 2-unit footprint: buried at one corner, in mid-air
+      at the other.
+    */
     let h = sampleHeight(cx + Math.cos(a) * r, cz + Math.sin(a) * r)
-    for (let tries = 0; tries < 8 && h < MIN_PLANTING_HEIGHT; tries++) {
+    for (let tries = 0; tries < 12; tries++) {
+      const px = cx + Math.cos(a) * r
+      const pz = cz + Math.sin(a) * r
+      h = sampleHeight(px, pz)
+      const gx = sampleHeight(px + 1, pz) - sampleHeight(px - 1, pz)
+      const gz = sampleHeight(px, pz + 1) - sampleHeight(px, pz - 1)
+      const grade = Math.hypot(gx, gz) / 2
+      if (h >= MIN_PLANTING_HEIGHT && grade <= MAX_PLANTING_GRADE) break
       r -= 1.2
-      h = sampleHeight(cx + Math.cos(a) * r, cz + Math.sin(a) * r)
     }
 
     out.push({
@@ -97,6 +112,8 @@ function scatter(d: District, count: number, rMin: number, rMax: number, seed: n
 }
 
 const MIN_PLANTING_HEIGHT = 1.2
+/** tan(30 degrees) — steeper than this and a flat-bottomed building floats. */
+const MAX_PLANTING_GRADE = 0.577
 
 /** Local y that puts an object on the ground at a district-local XZ. */
 function groundAt(d: District, lx: number, lz: number) {
@@ -105,15 +122,35 @@ function groundAt(d: District, lx: number, lz: number) {
 }
 
 /**
- * Furthest point along a bearing that is still dry land, for things that belong
- * at the water's edge. Same reason as above: a fixed radius is not reliably on
- * the beach.
+ * Furthest point along a bearing that is still dry land AND has ground under
+ * the whole footprint of what is being placed there.
+ *
+ * The footprint radius matters. Testing a single point returns the literal lip
+ * of the shore, and anything with a base then overhangs the water: measured,
+ * the lighthouse's plinth had a thirteen-unit void beneath its seaward half and
+ * no ground at all under the light past one unit out. Stepping in until the
+ * whole disc is supported costs four extra samples per step and puts the
+ * building on the headland instead of off it.
  */
-function findShore(d: District, dirX: number, dirZ: number, from: number) {
+function findShore(d: District, dirX: number, dirZ: number, from: number, radius = 0) {
   const [cx, cz] = districtCentre(d)
   for (let t = from; t > 2; t -= 0.6) {
-    const h = sampleHeight(cx + dirX * t, cz + dirZ * t)
-    if (h > 1.0) return { lx: dirX * t, lz: dirZ * t, y: h - d.pad }
+    const px = cx + dirX * t
+    const pz = cz + dirZ * t
+    const h = sampleHeight(px, pz)
+    if (h <= 1.0) continue
+
+    if (radius > 0) {
+      const under = Math.min(
+        sampleHeight(px + radius, pz),
+        sampleHeight(px - radius, pz),
+        sampleHeight(px, pz + radius),
+        sampleHeight(px, pz - radius),
+      )
+      if (under < 0.5) continue
+    }
+
+    return { lx: dirX * t, lz: dirZ * t, y: h - d.pad }
   }
   return { lx: dirX * 2, lz: dirZ * 2, y: groundAt(d, dirX * 2, dirZ * 2) }
 }
@@ -122,16 +159,16 @@ function findShore(d: District, dirX: number, dirZ: number, from: number) {
 // Ideology Isles — a domed rotunda ringed by slowly orbiting islets
 // ===========================================================================
 
-const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 64)
-const COLUMN = new THREE.CylinderGeometry(0.3, 0.36, 4.8, 24)
+const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 96)
+const COLUMN = new THREE.CylinderGeometry(0.3, 0.36, 4.8, 48)
 const CAPITAL = new THREE.BoxGeometry(0.95, 0.3, 0.95)
-const ENTABLATURE = new THREE.CylinderGeometry(5.6, 5.6, 0.7, 64)
-const DOME = new THREE.SphereGeometry(5.2, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2)
-const FINIAL = new THREE.SphereGeometry(0.55, 32, 24)
-const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 24)
+const ENTABLATURE = new THREE.CylinderGeometry(5.6, 5.6, 0.7, 96)
+const DOME = new THREE.SphereGeometry(5.2, 128, 64, 0, Math.PI * 2, 0, Math.PI / 2)
+const FINIAL = new THREE.SphereGeometry(0.55, 48, 32)
+const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 48)
 
-const ISLET_ROCK = new THREE.ConeGeometry(1.35, 2.6, 28)
-const ISLET_TOP = new THREE.CylinderGeometry(1.38, 1.38, 0.3, 32)
+const ISLET_ROCK = new THREE.ConeGeometry(1.35, 2.6, 48)
+const ISLET_TOP = new THREE.CylinderGeometry(1.38, 1.38, 0.3, 48)
 const MONOLITH = new THREE.BoxGeometry(0.3, 1.9, 0.3)
 
 const COLONNADE = Array.from({ length: 14 }, (_, i) => {
@@ -212,9 +249,9 @@ const SHRINE = new THREE.BoxGeometry(2.2, 1.7, 2.2)
 
 const OBELISK_SHAFT = new THREE.CylinderGeometry(0.42, 0.62, 7.4, 4)
 const OBELISK_CAP = new THREE.ConeGeometry(0.6, 1.3, 4)
-const RUIN_COLUMN = new THREE.CylinderGeometry(0.38, 0.44, 1, 24)
+const RUIN_COLUMN = new THREE.CylinderGeometry(0.38, 0.44, 1, 48)
 const ARCH_PIER = new THREE.BoxGeometry(1.1, 4, 1.4)
-const ARCH_VAULT = new THREE.TorusGeometry(2.2, 0.55, 24, 64, Math.PI)
+const ARCH_VAULT = new THREE.TorusGeometry(2.2, 0.55, 40, 128, Math.PI)
 const ARCH_LINTEL = new THREE.BoxGeometry(6.4, 1.1, 1.6)
 
 const RUINS = Array.from({ length: 7 }, (_, i) => {
@@ -270,17 +307,17 @@ export function HistoricalHabitat() {
 
 // 64x48 was 6,016 triangles for a 3.2-unit sphere. 32x24 is 1,472 and reads
 // identically at the size it occupies on screen.
-const GLOBE = new THREE.SphereGeometry(3.2, 32, 24)
+const GLOBE = new THREE.SphereGeometry(3.2, 128, 96)
 const GLOBE_MAT = std({ color: '#2f6f9e', roughness: 0.45, metalness: 0.15 })
-const LANDMASS = new THREE.SphereGeometry(1, 32, 24)
+const LANDMASS = new THREE.SphereGeometry(1, 48, 32)
 const LANDMASS_MAT = std({ color: '#4f9d5e', roughness: 0.8 })
 // Drawn three times (306-308). At tube radius 0.1 nobody can see 20 radial
 // segments: 5,120 triangles each becomes 1,024, saving 12,288 across the three.
-const RING = new THREE.TorusGeometry(4.05, 0.1, 8, 64)
-const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 40)
-const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 48)
-const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 28)
-const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 16)
+const RING = new THREE.TorusGeometry(4.05, 0.1, 20, 160)
+const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 72)
+const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 80)
+const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 48)
+const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 28)
 
 const UP = new THREE.Vector3(0, 1, 0)
 const CONTINENTS = (
@@ -305,7 +342,7 @@ const CONTINENTS = (
 })
 
 // 2,688 triangles each, three of them, for low garden hedges.
-const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 10, 48))
+const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 20, 112))
 const SPOKES = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2)
 
 export function GeographicalGarden({ d }: LandmarkProps) {
@@ -401,26 +438,27 @@ export function GeographicalGarden({ d }: LandmarkProps) {
 // Scientific Shores — observatory, atom sculpture, lighthouse, jetty
 // ===========================================================================
 
-const OBS_BASE = new THREE.CylinderGeometry(3.6, 4.0, 1.0, 56)
-const OBS_TOWER = new THREE.CylinderGeometry(3.0, 3.2, 5.0, 56)
-const OBS_BAND = new THREE.TorusGeometry(3.06, 0.24, 20, 64)
-const OBS_DOME = new THREE.SphereGeometry(3.1, 56, 28, 0, Math.PI * 2, 0, Math.PI / 2)
+const OBS_BASE = new THREE.CylinderGeometry(3.6, 4.0, 1.0, 96)
+const OBS_TOWER = new THREE.CylinderGeometry(3.0, 3.2, 5.0, 96)
+const OBS_BAND = new THREE.TorusGeometry(3.06, 0.24, 32, 128)
+const OBS_DOME = new THREE.SphereGeometry(3.1, 112, 56, 0, Math.PI * 2, 0, Math.PI / 2)
 const OBS_SLOT = new THREE.BoxGeometry(0.9, 3.3, 3.3)
-const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 24)
+const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 40)
 
-const NUCLEUS = new THREE.SphereGeometry(0.85, 48, 32)
+const NUCLEUS = new THREE.SphereGeometry(0.85, 72, 48)
 // Also drawn three times (378-380), same reasoning as RING above.
-const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 8, 64)
-const ELECTRON = new THREE.SphereGeometry(0.24, 24, 18)
+const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 20, 160)
+const ELECTRON = new THREE.SphereGeometry(0.24, 40, 28)
 
-const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 36)
-const LH_GALLERY = new THREE.CylinderGeometry(1.35, 1.35, 0.3, 36)
-const LH_LANTERN = new THREE.CylinderGeometry(1.0, 1.0, 1.4, 32)
-const LH_ROOF = new THREE.ConeGeometry(1.35, 1.5, 32)
-const LH_LAMP = new THREE.SphereGeometry(0.5, 32, 24)
+const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 64)
+const LH_GALLERY = new THREE.CylinderGeometry(1.35, 1.35, 0.3, 64)
+const LH_LANTERN = new THREE.CylinderGeometry(1.0, 1.0, 1.4, 64)
+const LH_ROOF = new THREE.ConeGeometry(1.35, 1.5, 64)
+const LH_LAMP = new THREE.SphereGeometry(0.5, 48, 32)
 const LAMP_MAT = std({ color: '#fff2c4', emissive: new THREE.Color('#ffd98a'), emissiveIntensity: 2.4, roughness: 0.4 })
 
 const JETTY_POSTS = Array.from({ length: 7 }, (_, i) => i)
+const JETTY_SPAN = 6 * 1.8 + 2
 
 function Atom() {
   const shell = useRef<THREE.Group>(null!)
@@ -472,22 +510,39 @@ function Lighthouse() {
 }
 
 export function ScientificShores({ d }: LandmarkProps) {
-  // "Outward" is away from the island centre, which is the direction the shore
-  // lies in. Both the jetty and the lighthouse are placed along it.
-  const outward = useMemo(() => {
-    const [cx, cz] = districtCentre(d)
-    const len = Math.hypot(cx, cz) || 1
-    return { x: cx / len, z: cz / len }
-  }, [d])
+  /*
+    Which way the open water lies. Both the jetty and the lighthouse run along
+    it, so it has to be right or the jetty walks inland.
 
-  const jetty = useMemo(
-    () =>
-      JETTY_POSTS.map((i) => {
-        const t = 10 + i * 1.8
-        return { lx: outward.x * t, lz: outward.z * t }
-      }),
-    [outward],
-  )
+    This used to be derived as "away from the world origin", which worked only
+    while every district sat on one shared island. On an archipelago each
+    district IS its own island, so that direction means nothing — it would now
+    point at whatever happens to be on the far side of the world. The bearing is
+    authored per district instead.
+  */
+  const outward = useMemo(() => ({ x: Math.cos(d.seaward), z: Math.sin(d.seaward) }), [d])
+
+  const jetty = useMemo(() => {
+    /*
+      The jetty starts at the waterline, not at a fixed radius. The island's
+      shore sits 13-17 units out depending on bearing, and the hardcoded 10 this
+      used to begin at put the deck's landward third and its first post inside
+      the hill — with a wedge of terrain standing two units proud of the planks.
+      Backing up 1.5 units from the shore lands it on the beach.
+    */
+    const shore = findShore(d, outward.x, outward.z, 26)
+    // Outward from the waterline, not inward from it. Stepping back toward the
+    // island walks UP the beach, which is how the deck ended up buried in the
+    // first place — the ground at 1.5 units inland stands nearly four units
+    // above the planks.
+    // +2 measured: at +1 the deck's landward end still breached the beach by
+    // three units, at +2 the highest ground beneath any part of it is -0.51.
+    const start = Math.hypot(shore.lx, shore.lz) + 2
+    return JETTY_POSTS.map((i) => {
+      const t = start + i * 1.8
+      return { lx: outward.x * t, lz: outward.z * t }
+    })
+  }, [d, outward])
 
   // On the headland beside the jetty — found by walking in from the water rather
   // than guessed, or it ends up submerged wherever the coastline happens to dip.
@@ -495,13 +550,11 @@ export function ScientificShores({ d }: LandmarkProps) {
     const bearing = 0.9
     const dx = outward.x * Math.cos(bearing) - outward.z * Math.sin(bearing)
     const dz = outward.z * Math.cos(bearing) + outward.x * Math.sin(bearing)
-    return findShore(d, dx, dz, 14)
+    return findShore(d, dx, dz, 16, 2.4)
   }, [d, outward])
 
-  const deckAngle = useMemo(() => {
-    const [cx, cz] = districtCentre(d)
-    return -Math.atan2(cz, cx)
-  }, [d])
+  // The deck runs along the jetty, so it shares the jetty's bearing.
+  const deckAngle = useMemo(() => -d.seaward, [d])
 
   const deckMid = jetty[Math.floor(jetty.length / 2)]
 
@@ -527,7 +580,9 @@ export function ScientificShores({ d }: LandmarkProps) {
       {/* Jetty: a deck spanning the posts, each post sunk to the sea floor. */}
       <mesh
         geometry={UNIT_BOX}
-        scale={[15, 0.3, 1.8]}
+        // Spans the posts and no more: 6 gaps of 1.8, plus a little overhang
+        // at each end. A fixed length overshot onto the beach.
+        scale={[JETTY_SPAN, 0.3, 1.8]}
         position={[deckMid.lx, -d.pad + 1.1, deckMid.lz]}
         rotation={[0, deckAngle, 0]}
         material={mat.wood}
@@ -556,24 +611,24 @@ export function ScientificShores({ d }: LandmarkProps) {
 const SEAT_TIERS = [0, 1, 2, 3].map((i) => {
   const rInner = 2.4 + i * 0.85
   return {
-    tread: new THREE.RingGeometry(rInner, rInner + 0.85, 72, 1, 0, Math.PI),
-    riser: new THREE.CylinderGeometry(rInner, rInner, 0.72, 72, 1, true, 0, Math.PI),
+    tread: new THREE.RingGeometry(rInner, rInner + 0.85, 128, 1, 0, Math.PI),
+    riser: new THREE.CylinderGeometry(rInner, rInner, 0.72, 128, 1, true, 0, Math.PI),
     y: (i + 1) * 0.72,
   }
 })
-const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 56)
+const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 96)
 // The single most tessellated object in the scene: 256x40x2 = 20,480 triangles
 // for a sculpture about three units across. 128x12 gives 3,072.
-const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 128, 12, 2, 3)
-const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 12)
+const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 320, 40, 2, 3)
+const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 24)
 const CANVAS = new THREE.BoxGeometry(2.4, 1.8, 0.12)
 
-const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 18)
+const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 32)
 // x22 instances in the grove, so this one multiplies: 816 triangles each was
 // 17,952 for the canopies alone. 16x12 brings that to 7,392 — a 59% cut that
 // still holds a round silhouette at the distance a district view parks at.
 // 12x10 was measurably faceted across 22 spheres at once.
-const CANOPY = new THREE.SphereGeometry(1.45, 16, 12)
+const CANOPY = new THREE.SphereGeometry(1.45, 32, 24)
 
 export function ArtisticArboretum({ d }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
@@ -635,8 +690,8 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
 
 const STANDING_STONE = new THREE.BoxGeometry(1.5, 3.0, 0.95)
 const LINTEL = new THREE.BoxGeometry(2.2, 0.55, 1.0)
-const CAIRN_ROCK = new THREE.IcosahedronGeometry(1, 2)
-const FLAGPOLE = new THREE.CylinderGeometry(0.07, 0.09, 4.4, 14)
+const CAIRN_ROCK = new THREE.IcosahedronGeometry(1, 4)
+const FLAGPOLE = new THREE.CylinderGeometry(0.07, 0.09, 4.4, 24)
 const BANNER = new THREE.BoxGeometry(1.9, 1.1, 0.06)
 
 const HENGE = Array.from({ length: 8 }, (_, i) => {

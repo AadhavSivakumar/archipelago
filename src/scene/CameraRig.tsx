@@ -13,15 +13,28 @@ type Controls = {
   update: () => void
 }
 
-/** Framing of the whole island, pulled back on narrow viewports. */
+/**
+ * Framing of the whole archipelago, pulled back on narrow viewports.
+ *
+ * The target is at z -14 rather than the origin because the world is no longer
+ * centred on itself: the content runs from the Alps at z -66 to the outer
+ * islets at z +34, so aiming at 0,0 would put a third of the frame on empty
+ * water behind the viewer. The distance follows from the width — the islands
+ * reach x ±55, which needs ~85 units of standoff at a 42 degree vertical fov
+ * on a 16:9 viewport, and 121 gives the mainland room to sit behind them.
+ */
 function homeView(scale: number) {
   return {
-    position: { x: 0, y: 31 * scale, z: 62 * scale },
-    target: { x: 0, y: 6, z: 0 },
+    position: { x: 0, y: 72 * scale, z: 104 * scale },
+    target: { x: 0, y: 4, z: -18 },
   }
 }
 
-const START = { x: 0, y: 115, z: 180 }
+/**
+ * Where the opening sweep begins: just beyond the fog's far plane, so the
+ * archipelago resolves out of the haze rather than being there from frame one.
+ */
+const START = { x: 0, y: 190, z: 275 }
 
 function viewFor(id: DistrictId, scale: number) {
   return districtView(DISTRICTS.find((x) => x.id === id)!, scale)
@@ -44,9 +57,9 @@ function viewFor(id: DistrictId, scale: number) {
  *    one's `onComplete` would hand control back to OrbitControls mid-flight.
  * 2. The orbit radius ceiling has to come off for the intro. `update()` clamps
  *    the radius on every call; `enabled` gates only its input handlers, not the
- *    clamp. START sits at radius ~210 against a ceiling of 110, so leaving it in
- *    place snaps the camera onto the 110 shell and pins it there for the first
- *    third of the flight.
+ *    clamp. START sits far beyond the orbit ceiling, so leaving it in place
+ *    snaps the camera onto that shell and pins it there for the first third of
+ *    the flight.
  */
 type RigProps = {
   focus: DistrictId | null
@@ -257,15 +270,26 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
         Tweening a single eased scalar and deriving position from it keeps GSAP
         the sole writer, and keeps the easing identical to the linear version.
       */
+      /*
+        Pivot on the midpoint of the two look-at targets, NOT on the world
+        origin. The origin was the island's centre when there was one island;
+        now it is a patch of open water that half the districts are nowhere
+        near, and arcing about it turned short hops into detours of up to 2.2x
+        the direct distance. Measuring the angle about the subject is what makes
+        "the short way round" mean the short way round the thing being looked at.
+      */
+      const pivotX = (controls.target.x + view.target.x) / 2
+      const pivotZ = (controls.target.z + view.target.z) / 2
+
       const from = camera.position
-      const a0 = Math.atan2(from.z, from.x)
-      const r0 = Math.hypot(from.x, from.z)
+      const a0 = Math.atan2(from.z - pivotZ, from.x - pivotX)
+      const r0 = Math.hypot(from.x - pivotX, from.z - pivotZ)
       const y0 = from.y
-      const r1 = Math.hypot(view.position.x, view.position.z)
+      const r1 = Math.hypot(view.position.x - pivotX, view.position.z - pivotZ)
       const y1 = view.position.y
 
       // Unwrapped so the camera always takes the short way round.
-      let da = Math.atan2(view.position.z, view.position.x) - a0
+      let da = Math.atan2(view.position.z - pivotZ, view.position.x - pivotX) - a0
       while (da > Math.PI) da -= Math.PI * 2
       while (da < -Math.PI) da += Math.PI * 2
 
@@ -290,7 +314,11 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
             const t = path.t
             const a = a0 + da * t
             const r = r0 + (r1 - r0) * t + bulge * Math.sin(Math.PI * t)
-            camera.position.set(Math.cos(a) * r, y0 + (y1 - y0) * t, Math.sin(a) * r)
+            camera.position.set(
+              pivotX + Math.cos(a) * r,
+              y0 + (y1 - y0) * t,
+              pivotZ + Math.sin(a) * r,
+            )
             controls.update()
           },
         },

@@ -26,20 +26,27 @@ export default defineConfig({
   // touched the deploy base before.
   base: pagesBase,
 
-  /*
-    TODO: split three (~600kB minified) into its own chunk so it downloads
-    alongside the app shell and stays cached across app deploys. Today every
-    build ships one undifferentiated bundle and trips the 500kB chunk warning.
+  build: {
+    /*
+      three is ~600kB minified and only changes when the dependency does, so
+      splitting it out lets the browser fetch it alongside the app shell and —
+      more usefully — keeps it cached across app deploys, which are frequent
+      while the scene is being tuned.
 
-    Deliberately not done blind. Vite 8 bundles with Rolldown, not Rollup —
-    there is no rollup package anywhere in the lockfile, and `rolldown` is a
-    direct dependency of `vite@8.2.1`. So the familiar
-    `build.rollupOptions.output.manualChunks` object form targets the wrong
-    bundler: Rolldown's native API is `output.advancedChunks.groups`, and what
-    its Rollup-compat layer accepts here needs an actual build to confirm.
-    Guessing wrong either fails `tsc --noEmit` on excess-property checking or
-    fails `vite build` — and this file is on the deploy path.
-
-    Add it behind a real `npm run build`, not from reading alone.
-  */
+      `rolldownOptions`, not `rollupOptions`: Vite 8 bundles with Rolldown.
+      There is no rollup package anywhere in the lockfile, and vite@8.2.1
+      depends on rolldown directly, so the familiar
+      `rollupOptions.output.manualChunks` targets a bundler that is not here —
+      Vite keeps that name only as a deprecated compat alias. Rolldown's own
+      option is `output.codeSplitting.groups`; `advancedChunks` is the older
+      spelling and is ignored when both are set.
+    */
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]/ }],
+        },
+      },
+    },
+  },
 })

@@ -67,8 +67,9 @@ export function Island({ occluderRef, deepLinked }: IslandProps) {
 // ---------------------------------------------------------------------------
 
 // Wide enough that its edge is always past the fog's far plane — otherwise the
-// horizon shows a square rim of ocean.
-const WATER_GEOMETRY = new THREE.PlaneGeometry(900, 900, 340, 340)
+// horizon shows a square rim of ocean. Grown with the world: the terrain now
+// reaches ±460, and on a narrow viewport framing.ts scales the fog out too.
+const WATER_GEOMETRY = new THREE.PlaneGeometry(1600, 1600, 400, 400)
 WATER_GEOMETRY.rotateX(-Math.PI / 2)
 
 const WATER_MATERIAL = new THREE.MeshStandardMaterial({

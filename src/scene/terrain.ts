@@ -1,29 +1,57 @@
 import * as THREE from 'three'
 import { uTime, WAVE_GLSL } from '../shaders/water'
-import { DISTRICTS, districtCentre } from './districts'
+import { DISTRICTS, districtCentre, type DistrictId } from './districts'
+
+/*
+  The terrain grid is GRADED, not uniform.
+
+  The mainland has to run off the edge of the world rather than end in a far
+  shore — anything else reads as a big island, which is what it was. For its
+  boundary to be genuinely invisible it has to sit beyond the fog's far plane,
+  and at the resolution the islands need that would be millions of vertices of
+  empty backdrop.
+
+  So the grid is remapped through a cubic: spacing near the middle is unchanged,
+  and stretches to roughly 9x at the edges. The islands keep every vertex they
+  had, the world reaches far enough that its rim is fully fog-coloured, and the
+  vertex count does not move.
+*/
+
+/** Rows and columns. Unchanged by the grading — only their spacing varies. */
+const GRID_X = 452
+const GRID_Z = 576
+
+/** Half-extent of the grid before grading. Sets the dense middle. */
+const GRID_HALF_X = 90
+const GRID_HALF_Z = 115
 
 /**
- * The plane is deliberately not square. The mainland runs off the -Z end, so
- * that axis needs enough depth for the land to end in water well before the
- * geometry's own boundary — a cut edge showing above the waterline reads as
- * exactly what it is.
- */
-const TERRAIN_WIDTH = 180
-const TERRAIN_DEPTH = 230
-/** Land is faded out over this much of the plane's border. */
-const RIM_FADE = 14
-/**
- * ~0.40 units per quad in both axes: 452 x 576 quads, 261k vertices, 520k
- * triangles. That is 5.4x the old island's 96,800 over 6.8x the area.
+ * Half-extent of the world after grading.
  *
- * The height field is the load cost — measured in the hundreds of milliseconds,
- * synchronous, and it lands after React's first commit rather than before it,
- * so the boot screen in index.html is already gone by then. The early-out in
- * sampleHeight for open water is what keeps it tolerable; roughly two thirds of
- * these vertices are ocean.
+ * Sized against the fog at its WIDEST, not at desktop aspect. framing.ts pulls
+ * the camera back up to 2x on a portrait phone and Scene.tsx scales the fog to
+ * match, so the far plane reaches 680 there — and a constant world of 460 left
+ * the mainland's horizon only a quarter fogged on exactly the form factor the
+ * framing code exists for. The grading absorbs the extra distance for free:
+ * edge quads coarsen to ~9 units, the vertex count does not move at all, and
+ * that geometry is nothing but fog-coloured backdrop anyway.
  */
-const SEGMENTS_X = 452
-const SEGMENTS_Z = 576
+const WORLD_HALF_X = 600
+const WORLD_HALF_Z = 900
+
+/** Land is faded out over this much of the world's outer border. */
+const RIM_FADE = 40
+
+/**
+ * Cubic grading. Identity at the centre (so the derivative there is exactly 1
+ * and the islands keep their original spacing), reaching the world half-extent
+ * at the grid's own edge.
+ */
+function grade(t: number, gridHalf: number, worldHalf: number) {
+  const s = Math.abs(t) / gridHalf
+  const stretch = (worldHalf - gridHalf) / gridHalf
+  return Math.sign(t) * gridHalf * (s + stretch * s * s * s)
+}
 
 function clamp(x: number, lo: number, hi: number) {
   return x < lo ? lo : x > hi ? hi : x
@@ -106,6 +134,16 @@ const CENTRES = DISTRICTS.map((d) => {
 })
 
 /**
+ * Districts that sit on the mainland rather than on an island of their own, and
+ * so contribute no entry to ISLES.
+ *
+ * The Alps rise out of it as a range; Scientific Shores is a beach on its
+ * coast. Both would be given a redundant — and, at Scientific Shores' position,
+ * actively wrong — circular island if they were left in the table.
+ */
+const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science'])
+
+/**
  * Every island in the archipelago, as centre and nominal radius.
  *
  * The first five carry a district; the rest are uninhabited and exist to make
@@ -117,7 +155,7 @@ const CENTRES = DISTRICTS.map((d) => {
  * islands of the same radius should not be the same shape.
  */
 const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
-  ...DISTRICTS.filter((d) => d.id !== 'anthropology').map((d, i) => {
+  ...DISTRICTS.filter((d) => !MAINLAND_DISTRICTS.has(d.id)).map((d, i) => {
     const [x, z] = districtCentre(d)
     /*
       Radius follows the plateau, with a lot of shoulder. The nominal figure is
@@ -144,8 +182,16 @@ const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
 /** Where the mainland's coast runs, before its wobble. Land lies further -Z. */
 const MAINLAND_Z = -46
 const MAINLAND_WOBBLE = 9
-/** How far the coast ramps from open sea to full inland height. */
-const MAINLAND_SHELF = 16
+/**
+ * How far the coast ramps from open sea to full inland height.
+ *
+ * Widened from 16. At 16 the mainland met the sea over about two units of
+ * gradient — a bank, not a shore — which is no use to a district called
+ * Scientific Shores. Stretching the ramp gives the whole continental coast a
+ * beach rather than an edge, and the sand band in the terrain's colour ramp
+ * (roughly 0 to 0.6 in height) something to sit on.
+ */
+const MAINLAND_SHELF = 26
 
 /*
   fbm() returns a normalised sum of value noise, and it does NOT span 0..1 —
@@ -179,17 +225,18 @@ function coastZ(x: number) {
 }
 
 /**
- * Fades land out before the plane's own boundary.
+ * Fades land out at the world's outer boundary.
  *
- * Without it the mainland simply stops where the geometry does, and that cut
- * runs across the frame as a dead-straight line of dry land — measured at 83
- * visible metres of it in the Alps view, at only ~45% fog. Land has to end in
- * water on every side.
+ * Still necessary — geometry has to stop somewhere, and a cut edge of dry land
+ * is unmistakable. But the boundary now sits 400+ units from the home camera,
+ * far outside a fog that saturates at 340, so the fade happens entirely inside
+ * fog-coloured haze. The mainland reads as running to the horizon because
+ * everything that would betray otherwise is invisible.
  */
 function rimFade(x: number, z: number) {
   const over = Math.max(
-    Math.abs(x) - (TERRAIN_WIDTH / 2 - RIM_FADE),
-    Math.abs(z) - (TERRAIN_DEPTH / 2 - RIM_FADE),
+    Math.abs(x) - (WORLD_HALF_X - RIM_FADE),
+    Math.abs(z) - (WORLD_HALF_Z - RIM_FADE),
   )
   return 1 - smoothstep(0, RIM_FADE, over)
 }
@@ -310,10 +357,28 @@ const SNOW = new THREE.Color('#eef2f8')
 const DISTRICT_COLORS = DISTRICTS.map((d) => new THREE.Color(d.color))
 const scratch = new THREE.Color()
 
-function buildIslandGeometry() {
-  const geo = new THREE.PlaneGeometry(TERRAIN_WIDTH, TERRAIN_DEPTH, SEGMENTS_X, SEGMENTS_Z)
+/**
+ * A flat grid whose vertex spacing is graded outward from the centre.
+ *
+ * PlaneGeometry gives the topology and the index buffer for free; all this does
+ * is lay it flat and push each vertex out along the grading curve before any
+ * height is sampled.
+ */
+function gradedGrid(segX: number, segZ: number) {
+  const geo = new THREE.PlaneGeometry(GRID_HALF_X * 2, GRID_HALF_Z * 2, segX, segZ)
   // Lay the plane flat once, on the geometry, so every vertex is (x, height, z).
   geo.rotateX(-Math.PI / 2)
+
+  const position = geo.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < position.count; i++) {
+    position.setX(i, grade(position.getX(i), GRID_HALF_X, WORLD_HALF_X))
+    position.setZ(i, grade(position.getZ(i), GRID_HALF_Z, WORLD_HALF_Z))
+  }
+  return geo
+}
+
+function buildIslandGeometry() {
+  const geo = gradedGrid(GRID_X, GRID_Z)
 
   const position = geo.attributes.position as THREE.BufferAttribute
   for (let i = 0; i < position.count; i++) {
@@ -378,8 +443,7 @@ const OCCLUDER_X = 64
 const OCCLUDER_Z = 82
 
 function buildOccluderGeometry() {
-  const geo = new THREE.PlaneGeometry(TERRAIN_WIDTH, TERRAIN_DEPTH, OCCLUDER_X, OCCLUDER_Z)
-  geo.rotateX(-Math.PI / 2)
+  const geo = gradedGrid(OCCLUDER_X, OCCLUDER_Z)
 
   const position = geo.attributes.position as THREE.BufferAttribute
   for (let i = 0; i < position.count; i++) {

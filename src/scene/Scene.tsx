@@ -225,7 +225,15 @@ export function Scene({ focus, onFocus }: Props) {
         // Home is ~140 units out, and framing.ts pulls back up to 2x on a
         // portrait phone, so the ceiling has to clear both.
         maxDistance={320}
-        maxPolarAngle={Math.PI / 2.15}
+        /*
+          Was PI/2.15 (83.7 degrees). At that tilt the camera dips BELOW the
+          ground on a district whose plateau sits lower than the land around it
+          — measured on Scientific Shores, whose pad of 2.0 sits in mainland
+          standing 6-7 units high: 34 of 72 azimuths put the camera up to a unit
+          underground, looking out through a front-sided material at sky. This
+          is a general guard, not a per-district patch.
+        */
+        maxPolarAngle={Math.PI / 2.3}
       />
     </>
   )

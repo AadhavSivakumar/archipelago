@@ -111,9 +111,23 @@ export const DISTRICTS: District[] = [
       'Explore the realms of science, from the logic of mathematics and biology to technology, engineering, and the cosmos.',
     color: '#3f7fa6',
     accent: '#8fd6ff',
-    x: 44,
-    z: 20,
-    seaward: 0.64,
+    /*
+      On the mainland, not an island of its own: a beach on the continental
+      shore, with its plateau running down to the waterline about thirteen units
+      seaward and the jetty carrying on from there. Of the six it is the one
+      whose name asks to be at the water's edge rather than surrounded by it.
+
+      Its seaward bearing points straight out to sea (+Z) because that is what
+      the jetty needs — it has to reach open water, and every bearing that
+      framed the camera better ran the jetty along the coast instead. The
+      consequence is that this one district's camera standoff passes over a
+      corner of Historical Habitat's island rather than over water. Measured, it
+      clears that ground by seventeen units and none of it is in frame, so the
+      bearing follows the jetty.
+    */
+    x: 46,
+    z: -75,
+    seaward: 1.57,
     pad: 2.0,
     padRadius: 8,
     relief: 1.1,

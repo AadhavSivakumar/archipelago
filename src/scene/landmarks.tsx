@@ -159,16 +159,16 @@ function findShore(d: District, dirX: number, dirZ: number, from: number, radius
 // Ideology Isles — a domed rotunda ringed by slowly orbiting islets
 // ===========================================================================
 
-const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 96)
-const COLUMN = new THREE.CylinderGeometry(0.3, 0.36, 4.8, 48)
+const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 160)
+const COLUMN = new THREE.CylinderGeometry(0.3, 0.36, 4.8, 96)
 const CAPITAL = new THREE.BoxGeometry(0.95, 0.3, 0.95)
-const ENTABLATURE = new THREE.CylinderGeometry(5.6, 5.6, 0.7, 96)
-const DOME = new THREE.SphereGeometry(5.2, 128, 64, 0, Math.PI * 2, 0, Math.PI / 2)
-const FINIAL = new THREE.SphereGeometry(0.55, 48, 32)
-const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 48)
+const ENTABLATURE = new THREE.CylinderGeometry(5.6, 5.6, 0.7, 160)
+const DOME = new THREE.SphereGeometry(5.2, 192, 96, 0, Math.PI * 2, 0, Math.PI / 2)
+const FINIAL = new THREE.SphereGeometry(0.55, 80, 56)
+const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 80)
 
-const ISLET_ROCK = new THREE.ConeGeometry(1.35, 2.6, 48)
-const ISLET_TOP = new THREE.CylinderGeometry(1.38, 1.38, 0.3, 48)
+const ISLET_ROCK = new THREE.ConeGeometry(1.35, 2.6, 80)
+const ISLET_TOP = new THREE.CylinderGeometry(1.38, 1.38, 0.3, 80)
 const MONOLITH = new THREE.BoxGeometry(0.3, 1.9, 0.3)
 
 const COLONNADE = Array.from({ length: 14 }, (_, i) => {
@@ -249,9 +249,9 @@ const SHRINE = new THREE.BoxGeometry(2.2, 1.7, 2.2)
 
 const OBELISK_SHAFT = new THREE.CylinderGeometry(0.42, 0.62, 7.4, 4)
 const OBELISK_CAP = new THREE.ConeGeometry(0.6, 1.3, 4)
-const RUIN_COLUMN = new THREE.CylinderGeometry(0.38, 0.44, 1, 48)
+const RUIN_COLUMN = new THREE.CylinderGeometry(0.38, 0.44, 1, 88)
 const ARCH_PIER = new THREE.BoxGeometry(1.1, 4, 1.4)
-const ARCH_VAULT = new THREE.TorusGeometry(2.2, 0.55, 40, 128, Math.PI)
+const ARCH_VAULT = new THREE.TorusGeometry(2.2, 0.55, 64, 208, Math.PI)
 const ARCH_LINTEL = new THREE.BoxGeometry(6.4, 1.1, 1.6)
 
 const RUINS = Array.from({ length: 7 }, (_, i) => {
@@ -307,17 +307,17 @@ export function HistoricalHabitat() {
 
 // 64x48 was 6,016 triangles for a 3.2-unit sphere. 32x24 is 1,472 and reads
 // identically at the size it occupies on screen.
-const GLOBE = new THREE.SphereGeometry(3.2, 128, 96)
+const GLOBE = new THREE.SphereGeometry(3.2, 192, 144)
 const GLOBE_MAT = std({ color: '#2f6f9e', roughness: 0.45, metalness: 0.15 })
-const LANDMASS = new THREE.SphereGeometry(1, 48, 32)
+const LANDMASS = new THREE.SphereGeometry(1, 80, 56)
 const LANDMASS_MAT = std({ color: '#4f9d5e', roughness: 0.8 })
 // Drawn three times (306-308). At tube radius 0.1 nobody can see 20 radial
 // segments: 5,120 triangles each becomes 1,024, saving 12,288 across the three.
-const RING = new THREE.TorusGeometry(4.05, 0.1, 20, 160)
-const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 72)
-const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 80)
-const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 48)
-const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 28)
+const RING = new THREE.TorusGeometry(4.05, 0.1, 32, 256)
+const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 128)
+const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
+const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 80)
+const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 48)
 
 const UP = new THREE.Vector3(0, 1, 0)
 const CONTINENTS = (
@@ -342,7 +342,7 @@ const CONTINENTS = (
 })
 
 // 2,688 triangles each, three of them, for low garden hedges.
-const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 20, 112))
+const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 32, 192))
 const SPOKES = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2)
 
 export function GeographicalGarden({ d }: LandmarkProps) {
@@ -438,23 +438,23 @@ export function GeographicalGarden({ d }: LandmarkProps) {
 // Scientific Shores — observatory, atom sculpture, lighthouse, jetty
 // ===========================================================================
 
-const OBS_BASE = new THREE.CylinderGeometry(3.6, 4.0, 1.0, 96)
-const OBS_TOWER = new THREE.CylinderGeometry(3.0, 3.2, 5.0, 96)
-const OBS_BAND = new THREE.TorusGeometry(3.06, 0.24, 32, 128)
-const OBS_DOME = new THREE.SphereGeometry(3.1, 112, 56, 0, Math.PI * 2, 0, Math.PI / 2)
+const OBS_BASE = new THREE.CylinderGeometry(3.6, 4.0, 1.0, 160)
+const OBS_TOWER = new THREE.CylinderGeometry(3.0, 3.2, 5.0, 160)
+const OBS_BAND = new THREE.TorusGeometry(3.06, 0.24, 48, 208)
+const OBS_DOME = new THREE.SphereGeometry(3.1, 176, 88, 0, Math.PI * 2, 0, Math.PI / 2)
 const OBS_SLOT = new THREE.BoxGeometry(0.9, 3.3, 3.3)
-const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 40)
+const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 72)
 
-const NUCLEUS = new THREE.SphereGeometry(0.85, 72, 48)
+const NUCLEUS = new THREE.SphereGeometry(0.85, 112, 80)
 // Also drawn three times (378-380), same reasoning as RING above.
-const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 20, 160)
-const ELECTRON = new THREE.SphereGeometry(0.24, 40, 28)
+const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 32, 256)
+const ELECTRON = new THREE.SphereGeometry(0.24, 64, 44)
 
-const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 64)
-const LH_GALLERY = new THREE.CylinderGeometry(1.35, 1.35, 0.3, 64)
-const LH_LANTERN = new THREE.CylinderGeometry(1.0, 1.0, 1.4, 64)
-const LH_ROOF = new THREE.ConeGeometry(1.35, 1.5, 64)
-const LH_LAMP = new THREE.SphereGeometry(0.5, 48, 32)
+const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 112)
+const LH_GALLERY = new THREE.CylinderGeometry(1.35, 1.35, 0.3, 112)
+const LH_LANTERN = new THREE.CylinderGeometry(1.0, 1.0, 1.4, 112)
+const LH_ROOF = new THREE.ConeGeometry(1.35, 1.5, 112)
+const LH_LAMP = new THREE.SphereGeometry(0.5, 80, 56)
 const LAMP_MAT = std({ color: '#fff2c4', emissive: new THREE.Color('#ffd98a'), emissiveIntensity: 2.4, roughness: 0.4 })
 
 const JETTY_POSTS = Array.from({ length: 7 }, (_, i) => i)
@@ -611,24 +611,24 @@ export function ScientificShores({ d }: LandmarkProps) {
 const SEAT_TIERS = [0, 1, 2, 3].map((i) => {
   const rInner = 2.4 + i * 0.85
   return {
-    tread: new THREE.RingGeometry(rInner, rInner + 0.85, 128, 1, 0, Math.PI),
-    riser: new THREE.CylinderGeometry(rInner, rInner, 0.72, 128, 1, true, 0, Math.PI),
+    tread: new THREE.RingGeometry(rInner, rInner + 0.85, 208, 2, 0, Math.PI),
+    riser: new THREE.CylinderGeometry(rInner, rInner, 0.72, 208, 1, true, 0, Math.PI),
     y: (i + 1) * 0.72,
   }
 })
-const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 96)
+const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 160)
 // The single most tessellated object in the scene: 256x40x2 = 20,480 triangles
 // for a sculpture about three units across. 128x12 gives 3,072.
-const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 320, 40, 2, 3)
-const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 24)
+const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 512, 64, 2, 3)
+const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 40)
 const CANVAS = new THREE.BoxGeometry(2.4, 1.8, 0.12)
 
-const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 32)
+const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 56)
 // x22 instances in the grove, so this one multiplies: 816 triangles each was
 // 17,952 for the canopies alone. 16x12 brings that to 7,392 — a 59% cut that
 // still holds a round silhouette at the distance a district view parks at.
 // 12x10 was measurably faceted across 22 spheres at once.
-const CANOPY = new THREE.SphereGeometry(1.45, 32, 24)
+const CANOPY = new THREE.SphereGeometry(1.45, 48, 36)
 
 export function ArtisticArboretum({ d }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
@@ -690,8 +690,8 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
 
 const STANDING_STONE = new THREE.BoxGeometry(1.5, 3.0, 0.95)
 const LINTEL = new THREE.BoxGeometry(2.2, 0.55, 1.0)
-const CAIRN_ROCK = new THREE.IcosahedronGeometry(1, 4)
-const FLAGPOLE = new THREE.CylinderGeometry(0.07, 0.09, 4.4, 24)
+const CAIRN_ROCK = new THREE.IcosahedronGeometry(1, 5)
+const FLAGPOLE = new THREE.CylinderGeometry(0.07, 0.09, 4.4, 40)
 const BANNER = new THREE.BoxGeometry(1.9, 1.1, 0.06)
 
 const HENGE = Array.from({ length: 8 }, (_, i) => {

@@ -1,5 +1,7 @@
 import { Suspense, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
+import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
+import { BlendFunction, ToneMappingMode } from 'postprocessing'
 import {
   Environment,
   Lightformer,
@@ -159,12 +161,13 @@ export function Scene({ focus, onFocus }: Props) {
     <>
       <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
       {/*
-        Widened with the world. The mainland's far shore now sits ~170 units
-        from the home camera, and it should read as receding coastline rather
-        than as a hard edge — which is also what hides the terrain plane's
-        boundary behind it.
+        Pulled well back. At [110, 340] against a camera 189 units out, the
+        near islands were already 30-60% hazed and the whole frame washed to one
+        pale blue — the fog was doing the job of distance on things that are not
+        distant. Starting at 200 leaves the archipelago itself clear and saves
+        the haze for the mainland and the world's rim, which is what it is for.
       */}
-      <fog attach="fog" args={['#bcd2e4', 110 * scale, 340 * scale]} />
+      <fog attach="fog" args={['#bcd2e4', 200 * scale, 560 * scale]} />
 
       {/*
         A procedural environment rather than an HDRI preset: drei's presets are
@@ -179,14 +182,28 @@ export function Scene({ focus, onFocus }: Props) {
         <Lightformer form="rect" intensity={0.7} color="#dceaff" scale={[90, 40]} position={[0, 40, 0]} rotation-x={Math.PI / 2} />
       </Environment>
 
-      <ambientLight intensity={0.35} />
-      <hemisphereLight args={['#cfe4ff', '#4a5a44', 0.6]} />
+      {/*
+        Fill was the other half of the toy problem, alongside flat materials.
+
+        Ambient 0.35 plus hemisphere 0.6 put nearly a full unit of directionless
+        light on every surface, which meant no face on any object was ever
+        properly dark. Shadowed sides sat at almost the same value as lit ones,
+        every cast shadow washed out to a grey smudge, and with no tonal range
+        across a form the eye reads it as small and moulded — the same reason
+        product photography of miniatures uses a light tent.
+
+        Cut to roughly a third. The key below carries the scene now, the
+        hemisphere supplies the sky/ground colour split that keeps shadows blue
+        rather than black, and the Environment above still handles the metals.
+      */}
+      <ambientLight intensity={0.12} />
+      <hemisphereLight args={['#cfe4ff', '#41513c', 0.32]} />
       <primitive object={sunTarget} position={[10, 0, -28]} />
       <directionalLight
         castShadow
         target={sunTarget}
         position={SUN}
-        intensity={2.8}
+        intensity={3.4}
         color="#fff2dc"
         // 3072 rather than 4096: a 4096 map is ~128MB resident, two thirds of
         // it a colour attachment nothing samples, and it is re-rendered every
@@ -231,6 +248,32 @@ export function Scene({ focus, onFocus }: Props) {
         <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
       </Suspense>
 
+      {/*
+        Grading, not effects.
+
+        The scene was rendering straight to the canvas with no tone curve, which
+        is why it read flat and plasticky however much geometry went into it:
+        every highlight clipped to the same white and every shadow sat at the
+        same lifted grey. ACES filmic gives the roll-off that makes bright
+        surfaces feel bright rather than blown, bloom lets the beacon and the
+        emissive accents actually glow, and a light vignette stops the frame
+        reading as an evenly-lit product shot.
+
+        SMAA because EffectComposer renders to a framebuffer, which disables the
+        Canvas's MSAA — without it every roofline and column edge crawls.
+      */}
+      <EffectComposer multisampling={0} enableNormalPass={false}>
+        <Bloom
+          intensity={0.42}
+          luminanceThreshold={0.82}
+          luminanceSmoothing={0.28}
+          mipmapBlur
+        />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <Vignette offset={0.32} darkness={0.42} blendFunction={BlendFunction.NORMAL} />
+        <SMAA />
+      </EffectComposer>
+
       <AdaptiveDpr />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} onFlyingChange={setFlying} />
@@ -242,8 +285,8 @@ export function Scene({ focus, onFocus }: Props) {
         // The home framing alone sits at ~121 units out now, so the old 110
         // ceiling would have clamped the camera before it ever arrived.
         minDistance={18}
-        // Home is ~140 units out, and framing.ts pulls back up to 2x on a
-        // portrait phone, so the ceiling has to clear both.
+        // Home is ~126 units out and framing.ts pulls back up to 2x on a portrait
+        // phone, so the ceiling has to clear 252.
         maxDistance={320}
         /*
           Was PI/2.15 (83.7 degrees). At that tilt the camera dips BELOW the

@@ -44,7 +44,21 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         codeSplitting: {
-          groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]/ }],
+          groups: [
+            { name: 'three', test: /node_modules[\\/]three[\\/]/ },
+            /*
+              postprocessing adds ~250kB to the app chunk, and like three it
+              turns over only when the dependency does — so leaving it inlined
+              would mean re-downloading a quarter of a megabyte of unchanged
+              effect code on every scene tweak. Matched with an alternation
+              rather than two entries so both packages land in one file: they
+              are always loaded together, and a second request buys nothing.
+            */
+            {
+              name: 'postprocessing',
+              test: /node_modules[\\/](postprocessing|@react-three[\\/]postprocessing)[\\/]/,
+            },
+          ],
         },
       },
     },

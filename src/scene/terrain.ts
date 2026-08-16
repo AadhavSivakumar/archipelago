@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { weather } from './surface'
 import { uTime, WAVE_GLSL } from '../shaders/water'
 import { DISTRICTS } from './districts'
 import { buildGridArrays, GRID_X, GRID_Z, shadeTerrain, type Palette } from './terrainField'
@@ -27,12 +28,27 @@ const rgb = (hex: string) => {
  * DEEP is matched to the water's own colour so the sea floor is
  * indistinguishable from open ocean through the 93%-opaque surface.
  */
+/*
+  Pulled well back from where these started.
+
+  The greens were #5f8f4e and #3b6a3c — the saturation you would pick off a
+  colour wheel for "grass" and "forest", and they made the islands read as
+  moulded green plastic. Vegetation seen across water is never that pure: it is
+  greyed by the air between, and it carries far more yellow, brown and olive
+  than the word "green" suggests. ACES tone mapping compounds the problem,
+  because it holds saturation into the highlights instead of rolling it off the
+  way an untonemapped buffer did.
+
+  The sand went the same way. #d9caa5 rendered as a piped band of cream icing
+  around every island; real beach is darker, greyer and browner than people
+  remember it being.
+*/
 const PALETTE: Palette = {
   deep: rgb('#1d5f8c'),
-  wet: rgb('#7d7458'),
-  sand: rgb('#d9caa5'),
-  grass: rgb('#5f8f4e'),
-  forest: rgb('#3b6a3c'),
+  wet: rgb('#6d6650'),
+  sand: rgb('#c0b18e'),
+  grass: rgb('#77895b'),
+  forest: rgb('#4c6244'),
   rock: rgb('#7f776a'),
   snow: rgb('#eef2f8'),
   districts: DISTRICTS.map((d) => rgb(d.color)),
@@ -161,6 +177,14 @@ export function islandOccluderGeometry() {
   return occluderBuilt
 }
 
+/*
+  Weathered at a scale the vertex grid cannot reach. The height field is
+  452x576 over 1200x1800 world units, so one quad is about 2.7 units across —
+  which is why the terrain read as felt however much fbm went into the heights.
+  Everything below three metres of detail has to come from the shader, and this
+  is where it comes from: the grass gets grain, the rock gets a pitted normal,
+  and the light finally has something to graze.
+*/
 export const ISLAND_MATERIAL = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 0.95,
@@ -205,8 +229,28 @@ ISLAND_MATERIAL.onBeforeCompile = (shader) => {
         widening this number pushes white inland rather than merely thickening
         the coastline.
       */
-      float foam = 1.0 - smoothstep(0.0, 1.1, abs(vLocalPos.y - surface));
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.96, 0.98), foam * 0.6);
+      float foam = 1.0 - smoothstep(0.0, 0.7, abs(vLocalPos.y - surface));
+      // Narrower and weaker, and tinted rather than white. At 1.1 units and 60%
+      // toward white every island wore a hard bright ring, which is most of
+      // what made them read as moulded plastic.
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.90, 0.92), foam * 0.34);
     `,
   )
 }
+
+/*
+  Grain below the reach of the vertex grid.
+
+  The height field is 452x576 over 1200x1800 world units, so one quad spans
+  about 2.7 units — which is why the terrain read as felt however much fbm went
+  into the heights. There is no geometry under three metres, and there cannot
+  be without shipping a mesh nobody wants to download. Everything finer than
+  that has to come from the shader, and this is where it comes from.
+
+  Applied here rather than at the declaration above on purpose: weather()
+  chains onto whatever onBeforeCompile a material is carrying when it is
+  called, and the foam patch is installed by plain assignment. Weathering first
+  would have the foam assignment overwrite it outright, silently, with the only
+  symptom being terrain that stays smooth.
+*/
+weather(ISLAND_MATERIAL, { grain: 0.85, mottle: 0.3, bump: 0.85, rough: 0.16 })

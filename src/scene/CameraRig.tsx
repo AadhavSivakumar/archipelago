@@ -16,17 +16,22 @@ type Controls = {
 /**
  * Framing of the whole archipelago, pulled back on narrow viewports.
  *
- * The target is at z -14 rather than the origin because the world is no longer
- * centred on itself: the content runs from the Alps at z -66 to the outer
- * islets at z +34, so aiming at 0,0 would put a third of the frame on empty
- * water behind the viewer. The distance follows from the width — the islands
- * reach x ±55, which needs ~85 units of standoff at a 42 degree vertical fov
- * on a 16:9 viewport, and 121 gives the mainland room to sit behind them.
+ * The target sits behind the archipelago rather than at the origin, because the
+ * world is not centred on itself — the content runs from the Alps at z -70 to
+ * the outer islets at z +48.
+ *
+ * The pitch is the part that matters. At the previous framing the camera looked
+ * down 29 degrees with a 21-degree half-angle, which put the HORIZON 8 degrees
+ * above the top of the frame: no sky, no skyline, nothing for the islands to
+ * recede against, and clouds could only appear by sitting below the horizon and
+ * painting over the sea. Everything read as a tabletop. At 13 degrees the
+ * horizon falls about a fifth of the way down the frame and the scene has a sky
+ * over it.
  */
 function homeView(scale: number) {
   return {
-    position: { x: 0, y: 72 * scale, z: 104 * scale },
-    target: { x: 0, y: 4, z: -18 },
+    position: { x: 0, y: 40 * scale, z: 92 * scale },
+    target: { x: 0, y: 8, z: -30 },
   }
 }
 
@@ -34,7 +39,7 @@ function homeView(scale: number) {
  * Where the opening sweep begins: just beyond the fog's far plane, so the
  * archipelago resolves out of the haze rather than being there from frame one.
  */
-const START = { x: 0, y: 190, z: 275 }
+const START = { x: 0, y: 120, z: 400 }
 
 function viewFor(id: DistrictId, scale: number) {
   return districtView(DISTRICTS.find((x) => x.id === id)!, scale)

@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
+import { weather } from './surface'
 import { waveHeight } from '../shaders/water'
 
 /*
@@ -54,7 +55,7 @@ const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
   transparent: true,
   // Lower than before: lobes overlap, and the overlaps are what give a cloud
   // its density. At 0.62 each the stacked centres went solid.
-  opacity: 0.42,
+  opacity: 0.34,
   // Depth-write off so overlapping puffs in one cloud do not cut each other.
   depthWrite: false,
 })
@@ -84,15 +85,21 @@ const CLOUD_LOBES = (() => {
     const angle = rand() * Math.PI * 2
     // Beyond the archipelago (which reaches ~85 units out) but inside the fog's
     // far plane, so they sit in the haze rather than as hard shapes.
-    const radius = 105 + rand() * 85
+    /*
+      Pushed out and up. At 105-190 units and a height of 28-36 the clouds sat
+      BELOW the horizon from the home camera, so they painted as grey scum
+      across the water instead of as sky. Cloud has to be above the horizon
+      line, which means above the camera, which means well above 58.
+    */
+    const radius = 210 + rand() * 190
     const cx = Math.cos(angle) * radius
     const cz = Math.sin(angle) * radius
     // The home shot looks DOWN, so there is a hard ceiling on what is on-screen
     // at all: measured against the framing, the frustum's top plane runs from
     // y=54 over the near water to y=40 above the mainland. This band clears the
     // Alps (~26 at their peaks) and stays under the lowest part of it.
-    const cy = 28 + rand() * 8
-    const width = 20 + rand() * 24
+    const cy = 96 + rand() * 46
+    const width = 34 + rand() * 40
     const heading = rand() * Math.PI
     const count = 4 + Math.floor(rand() * 4)
 
@@ -121,18 +128,30 @@ const CLOUD_LOBES = (() => {
 // Birds
 // ---------------------------------------------------------------------------
 
-/** A shallow tetrahedron reads as a silhouette with a wing line at this size,
- *  which is all a bird needs to be from 60 units away. */
-const BIRD = new THREE.TetrahedronGeometry(0.6, 1)
-const BIRD_MATERIAL = new THREE.MeshStandardMaterial({ color: '#3d4a5c', roughness: 0.9 })
+/*
+  Birds are specks, not shapes.
+
+  At 0.6 radius in a dark slate they rendered as black diamonds hanging in the
+  middle distance — closer to debris on the lens than to wildlife. Distant birds
+  read almost entirely as a small, soft, moving mark; the geometry only has to
+  not be a square. Smaller, lighter, and pushed further out and higher.
+*/
+const BIRD = new THREE.TetrahedronGeometry(0.22, 1)
+const BIRD_MATERIAL = new THREE.MeshStandardMaterial({
+  color: '#6b7686',
+  roughness: 0.95,
+  // Unlit enough not to flash bright when the sun catches a facet.
+  metalness: 0,
+})
 
 const BIRDS = (() => {
   const rand = rng(0xb14d)
-  return Array.from({ length: 22 }, () => ({
-    // Wide enough to range across the islands rather than circling one.
-    radius: 42 + rand() * 48,
-    // Under the clouds, over everything but the Alps.
-    height: 20 + rand() * 10,
+  return Array.from({ length: 16 }, () => ({
+    // Wide enough to range across the islands rather than circling one, and far
+    // enough out that none of them crosses the camera at close range.
+    radius: 70 + rand() * 70,
+    // Well above the Alps, so they read against sky rather than against land.
+    height: 46 + rand() * 26,
     phase: rand() * Math.PI * 2,
     speed: 0.06 + rand() * 0.05,
     bob: 0.7 + rand() * 1.4,
@@ -149,8 +168,19 @@ const PROW = new THREE.ConeGeometry(0.55, 1.3, 24)
 const MAST = new THREE.CylinderGeometry(0.06, 0.08, 3.2, 20)
 const SAIL = new THREE.BoxGeometry(0.08, 2.0, 1.5)
 
-const HULL_MATERIAL = new THREE.MeshStandardMaterial({ color: '#6b4a2c', roughness: 0.85 })
-const SAIL_MATERIAL = new THREE.MeshStandardMaterial({ color: '#efe6d8', roughness: 0.9 })
+/*
+  The boat is weathered; the clouds and birds above deliberately are not. Grain
+  on a cloud reads as static, and the birds are four pixels across at the home
+  view — every cycle spent on their surface is a cycle wasted.
+*/
+const HULL_MATERIAL = weather(
+  new THREE.MeshStandardMaterial({ color: '#5e4229', roughness: 0.88 }),
+  { grain: 12, mottle: 0.3, bump: 0.5, rough: 0.16 },
+)
+const SAIL_MATERIAL = weather(
+  new THREE.MeshStandardMaterial({ color: '#ded4c4', roughness: 0.92 }),
+  { grain: 16, mottle: 0.18, bump: 0.55, rough: 0.1 },
+)
 
 /*
   The boat used to circle the origin, which worked when there was exactly one

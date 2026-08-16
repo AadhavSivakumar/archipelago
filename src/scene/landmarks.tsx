@@ -5,46 +5,77 @@ import * as THREE from 'three'
 import { prefersReducedMotion } from '../animations/gsap'
 import { DISTRICTS, districtCentre, type District, type DistrictId } from './districts'
 import { sampleHeight } from './terrain'
+import { weather, type WeatherOptions } from './surface'
 
 // ---------------------------------------------------------------------------
 // Shared materials. One instance each, reused by every landmark — a fresh
 // MeshStandardMaterial per mesh would mean a fresh shader program per mesh.
 // ---------------------------------------------------------------------------
 
-const std = (p: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(p)
+/*
+  Every material here is weathered — see surface.ts. The colours were also
+  pulled back from where they started: they had been picked as swatches, at the
+  saturation you would choose for an icon, and a scene lit by one warm sun is
+  going to push them further still. Weathered stone is a grey with a hint of
+  something in it, not a colour; the accents below carry the hue, and they only
+  read as accents if the bulk of the scene does not compete.
+
+  The per-material grain is the real tuning knob. Scale it to the *feature* the
+  surface should show: quarried stone has a coarse pit at roughly a fifth of a
+  world unit (grain 5), planed timber has a fine grain along it (grain 9),
+  polished marble and metal have almost none, and foliage wants a large, soft
+  variation that reads as different leaves catching light rather than as dirt.
+*/
+const std = (p: THREE.MeshStandardMaterialParameters, w: WeatherOptions = {}) =>
+  weather(new THREE.MeshStandardMaterial(p), w)
+
+/** Cut stone: pitted, matte, and never quite one colour across a face. */
+const QUARRIED: WeatherOptions = { grain: 5, mottle: 0.3, bump: 0.55, rough: 0.2 }
+/** Dressed or polished stone: the same rock, worked smooth. */
+const DRESSED: WeatherOptions = { grain: 7, mottle: 0.14, bump: 0.22, rough: 0.1 }
+/** Metal: almost no albedo variation, but roughness variation is what stops a
+    metal reading as a mirrored blob, so that one stays up. */
+const METAL: WeatherOptions = { grain: 9, mottle: 0.07, bump: 0.14, rough: 0.24 }
+/** Foliage: broad, strong colour variation, no micro-bump worth the cost. */
+const FOLIAGE: WeatherOptions = { grain: 1.5, mottle: 0.46, bump: 0.3, rough: 0.12 }
 
 const mat = {
-  marble: std({ color: '#e9e4da', roughness: 0.34 }),
-  stone: std({ color: '#a8a297', roughness: 0.85 }),
+  marble: std({ color: '#dcd6cb', roughness: 0.42 }, DRESSED),
+  stone: std({ color: '#9d9a92', roughness: 0.88 }, QUARRIED),
   /** For open-ended and ring geometry, which is visible from both faces. */
-  stoneBoth: std({ color: '#a8a297', roughness: 0.85, side: THREE.DoubleSide }),
-  darkStone: std({ color: '#6d685f', roughness: 0.9 }),
-  sandstone: std({ color: '#c39a68', roughness: 0.86 }),
-  gold: std({ color: '#d9b451', roughness: 0.22, metalness: 0.95 }),
-  brass: std({ color: '#b08d3f', roughness: 0.3, metalness: 0.85 }),
-  steel: std({ color: '#b9c2cc', roughness: 0.24, metalness: 0.9 }),
-  dark: std({ color: '#383d45', roughness: 0.55, metalness: 0.25 }),
-  wood: std({ color: '#7a5230', roughness: 0.85 }),
-  leaf: std({ color: '#3f7a43', roughness: 0.8 }),
-  leafWarm: std({ color: '#6f9c3c', roughness: 0.8 }),
-  hedge: std({ color: '#34693a', roughness: 0.92 }),
-  glass: std({ color: '#a8dcff', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.6 }),
-  snow: std({ color: '#f2f6fb', roughness: 0.7 }),
-  ember: std({ color: '#d8543c', roughness: 0.55 }),
-  canvasCloth: std({ color: '#efe6d8', roughness: 0.9 }),
+  stoneBoth: std({ color: '#9d9a92', roughness: 0.88, side: THREE.DoubleSide }, QUARRIED),
+  darkStone: std({ color: '#615d56', roughness: 0.92 }, QUARRIED),
+  sandstone: std({ color: '#ab8a63', roughness: 0.9 }, QUARRIED),
+  gold: std({ color: '#c2a052', roughness: 0.3, metalness: 0.92 }, METAL),
+  brass: std({ color: '#9c7f3f', roughness: 0.38, metalness: 0.82 }, METAL),
+  steel: std({ color: '#a7b0ba', roughness: 0.32, metalness: 0.88 }, METAL),
+  dark: std({ color: '#33373e', roughness: 0.6, metalness: 0.25 }, DRESSED),
+  wood: std({ color: '#6b4a2e', roughness: 0.88 }, { grain: 9, mottle: 0.3, bump: 0.42, rough: 0.16 }),
+  leaf: std({ color: '#3c6d41', roughness: 0.85 }, FOLIAGE),
+  leafWarm: std({ color: '#63883c', roughness: 0.85 }, FOLIAGE),
+  hedge: std({ color: '#33603a', roughness: 0.94 }, { ...FOLIAGE, grain: 3.2 }),
+  // Glass gets nothing: grain on a transparent surface reads as grime, and
+  // these are the one thing in the scene that should look manufactured.
+  glass: std({ color: '#a8dcff', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.6 }, { mottle: 0, bump: 0, rough: 0 }),
+  snow: std({ color: '#e8eef6', roughness: 0.78 }, { grain: 2.4, mottle: 0.1, bump: 0.5, rough: 0.1 }),
+  ember: std({ color: '#b8492f', roughness: 0.62 }, DRESSED),
+  canvasCloth: std({ color: '#ded4c4', roughness: 0.92 }, { grain: 14, mottle: 0.16, bump: 0.5, rough: 0.1 }),
 }
 
 /** One emissive accent material per district, keyed off the palette in districts.ts. */
 const ACCENT = Object.fromEntries(
   DISTRICTS.map((d) => [
     d.id,
-    std({
-      color: d.accent,
-      roughness: 0.3,
-      metalness: 0.45,
-      emissive: new THREE.Color(d.accent),
-      emissiveIntensity: 0.18,
-    }),
+    std(
+      {
+        color: d.accent,
+        roughness: 0.3,
+        metalness: 0.45,
+        emissive: new THREE.Color(d.accent),
+        emissiveIntensity: 0.4,
+      },
+      METAL,
+    ),
   ]),
 ) as Record<DistrictId, THREE.MeshStandardMaterial>
 
@@ -92,6 +123,61 @@ function roughen(geo: THREE.BufferGeometry, amount: number) {
       offsets.set(k, off)
     }
     pos.setXYZ(i, x + off[0], y + off[1], z + off[2])
+  }
+
+  pos.needsUpdate = true
+  geo.computeVertexNormals()
+  return geo
+}
+
+/**
+ * Push a closed shape off being a sphere.
+ *
+ * roughen() above adds white noise per vertex, which is right for hewn stone —
+ * the displacement should be uncorrelated because chisel marks are. It is
+ * exactly wrong for a tree crown: at 48x36 the noise is finer than a pixel, so
+ * a canopy roughened that way is a sphere with fuzz on it, and still reads as a
+ * green ball on a stick.
+ *
+ * What a crown actually has is a handful of *masses* — the boughs — each
+ * pushing the outline out in its own direction, with hollows between them. So
+ * this displaces along the radius by a sum of a few wide cosine lobes pointed
+ * in random directions: coherent at exactly the scale that changes a
+ * silhouette, and untouched at the scale that would only add noise.
+ *
+ * The lobes are raised to a power to narrow them; without that they overlap
+ * into a uniform swelling and the result is a slightly larger sphere.
+ */
+function lumpen(geo: THREE.BufferGeometry, seed: number, amount: number, lobes = 7) {
+  const rand = rng(seed)
+  const dirs = Array.from({ length: lobes }, () => {
+    // Uniform on the sphere. Picking two angles instead clusters at the poles,
+    // which would put every bough on the top and bottom of the crown.
+    const u = rand() * 2 - 1
+    const t = rand() * Math.PI * 2
+    const s = Math.sqrt(1 - u * u)
+    return { x: s * Math.cos(t), y: u, z: s * Math.sin(t), w: 0.45 + rand() }
+  })
+  const total = dirs.reduce((a, d) => a + d.w, 0)
+
+  const pos = geo.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const z = pos.getZ(i)
+    const len = Math.hypot(x, y, z) || 1
+
+    let d = 0
+    for (const g of dirs) {
+      const c = (x * g.x + y * g.y + z * g.z) / len
+      if (c > 0) d += g.w * c * c * c
+    }
+
+    // Centred on zero so the crown keeps its nominal volume: the lobes push out
+    // where they point and the radius pulls in everywhere else, rather than the
+    // whole thing inflating.
+    const k = 1 + amount * ((d / total) * 2.6 - 0.5)
+    pos.setXYZ(i, (x / len) * len * k, (y / len) * len * k, (z / len) * len * k)
   }
 
   pos.needsUpdate = true
@@ -840,11 +926,23 @@ const CROWN_LOBES = [
   { offset: [0.62, 0.35, -0.3] as const, scale: 0.72 },
   { offset: [-0.5, 0.5, 0.45] as const, scale: 0.66 },
 ]
-// x22 instances in the grove, so this one multiplies: 816 triangles each was
-// 17,952 for the canopies alone. 16x12 brings that to 7,392 — a 59% cut that
-// still holds a round silhouette at the distance a district view parks at.
-// 12x10 was measurably faceted across 22 spheres at once.
-const CANOPY = new THREE.SphereGeometry(1.45, 48, 36)
+/*
+  Three crowns, not one.
+
+  This was a single SphereGeometry, and three of them stacked per tree — so the
+  grove was sixty-six identical green balls, which is the single most toy-like
+  thing in any of the districts. Rotating the instances did nothing, because a
+  sphere looks the same from every angle.
+
+  Three lumpen variants, each from its own seed, is what breaks that: the three
+  lobes of a crown are now three different shapes, and neighbouring trees pair
+  them differently as the per-instance rotation turns them. Sixty-six balls
+  become sixty-six silhouettes with no extra draw call — one <Instances> per
+  variant instead of one for all three, which is two extra calls total.
+*/
+const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
+  lumpen(new THREE.SphereGeometry(1.45, 48, 36), seed, 0.62),
+)
 
 export function ArtisticArboretum({ d }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
@@ -909,9 +1007,11 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>
-      <Instances geometry={CANOPY} material={mat.leaf} limit={32 * CROWN_LOBES.length}>
+      {CANOPIES.map((canopy, variant) => (
+      <Instances key={variant} geometry={canopy} material={mat.leaf} limit={32}>
         {grove.flatMap((t, i) =>
-          CROWN_LOBES.map((lobe, k) => {
+          CROWN_LOBES.filter((_, k) => k === variant).map((lobe) => {
+            const k = variant
             // The lobe offsets are authored on an un-rotated tree, so the tree's
             // own rotation has to carry them round — otherwise every crown in
             // the grove leans the same way.
@@ -933,6 +1033,7 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
           }),
         )}
       </Instances>
+      ))}
     </group>
   )
 }

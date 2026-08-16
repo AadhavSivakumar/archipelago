@@ -328,6 +328,19 @@ export function sampleHeight(x: number, z: number) {
 
   let h = Math.pow(land, 1.4) * (1.6 + 7.5 * fbm(x * 0.03 + 5, z * 0.03 + 5, 4))
 
+  /*
+    Fine relief, added BEFORE the plateau flatten so the pads stay level.
+
+    Without it the land is a smooth interpolation of one low-frequency field,
+    and it reads as moulded plastic — no amount of material work fixes a surface
+    with no shape in it. These two octaves sit at wavelengths of roughly 20 and
+    6 units against a 0.4-unit grid, so both are resolved, and the combined
+    amplitude of about +/-0.6 is small enough that nothing already placed on the
+    height field moves anywhere it should not be.
+  */
+  h += land * 0.85 * (fbm(x * 0.28 + 17, z * 0.28 - 9, 3) - 0.5)
+  h += land * 0.4 * (fbm(x * 0.9 + 3, z * 0.9 + 11, 2) - 0.5)
+
   // Per-district relief, then a plateau flattened under the landmark.
   for (const c of CENTRES) {
     const dist = Math.hypot(x - c.x, z - c.z)
@@ -493,18 +506,66 @@ export function shadeTerrain(
     const y = positions[i * 3 + 1]
     const z = positions[i * 3 + 2]
 
-    r = palette.deep[0]; g = palette.deep[1]; b = palette.deep[2]
-    lerp(palette.wet, smoothstep(-13, -2.5, y))
-    lerp(palette.sand, smoothstep(-2.5, 0.2, y))
-    lerp(palette.grass, smoothstep(0.6, 2.4, y))
-    lerp(palette.forest, smoothstep(3.2, 7.2, y))
-    lerp(palette.rock, smoothstep(8.5, 13.5, y))
+    /*
+      The ecotones are ragged, not level.
 
-    // Rock before snow, so the snow line still reads on steep faces — the other
-    // order buries the Alps under uniform grey.
-    const slopeRock = smoothstep(0.9, 0.56, normals[i * 3 + 1]) * 0.62
+      Every colour band below is a smoothstep on height, which draws each
+      boundary as a perfect contour line — so the sand met the grass at exactly
+      the same elevation the whole way around every island, and the result was a
+      band of cream piped around a green dome. Nothing in a landscape does that:
+      vegetation runs further down a sheltered gully than an exposed spur, and
+      the beach is wide in one bay and absent at the next headland.
+
+      Displacing the height the *bands* are evaluated at — never the height the
+      geometry is built at — buys all of that for one noise lookup. The land
+      keeps its shape; only the boundaries wander across it.
+    */
+    const band = y + (fbm(x * 0.13 + 5, z * 0.13 - 31, 3) - 0.5) * 3.4
+
+    r = palette.deep[0]; g = palette.deep[1]; b = palette.deep[2]
+    lerp(palette.wet, smoothstep(-13, -2.5, band))
+    lerp(palette.sand, smoothstep(-2.5, 0.2, band))
+    lerp(palette.grass, smoothstep(0.6, 2.4, band))
+    lerp(palette.forest, smoothstep(3.2, 7.2, band))
+    lerp(palette.rock, smoothstep(8.5, 13.5, band))
+
+    /*
+      Rock before snow, so the snow line still reads on steep faces — the other
+      order buries the Alps under uniform grey. Strengthened, and the snow line
+      pushed up: at the old thresholds the mountain went white above 17 and
+      became a featureless meringue with no rock showing anywhere.
+    */
+    const slopeRock = smoothstep(0.88, 0.5, normals[i * 3 + 1]) * 0.85
     lerp(palette.rock, slopeRock)
-    lerp(palette.snow, smoothstep(12.5, 17.0, y) * (1 - 0.5 * slopeRock))
+    lerp(palette.snow, smoothstep(15.5, 23.0, y) * (1 - 0.75 * slopeRock))
+
+    /*
+      Mottling. A smooth ramp between seven colours is exactly as flat as it
+      sounds — every hillside is one continuous gradient, which is the other
+      half of why the land looked like plastic. Two bands of noise, one broad
+      and one fine, break the value and push patches toward warm and cool. It is
+      cheap: the noise is already here, and this runs once at build time.
+    */
+    const broad = fbm(x * 0.055 + 41, z * 0.055 - 23, 3) - 0.5
+    const fine = fbm(x * 0.42 - 7, z * 0.42 + 61, 2) - 0.5
+    const shade = 1 + broad * 0.26 + fine * 0.13
+
+    /*
+      Hue drift, on its own noise field.
+
+      Value mottling alone — which is all this used to do — gives you a green
+      that is lighter here and darker there, and the eye still reads one paint
+      colour under uneven light. What makes a real hillside look like ground is
+      that the hue itself moves: a dry sunlit shoulder goes olive and yellow, a
+      damp north face goes blue-green. Decorrelated from `broad` deliberately,
+      so the two do not line up and produce bands that are simultaneously
+      brighter and yellower, which reads as a lighting artefact rather than as
+      terrain.
+    */
+    const hue = fbm(x * 0.031 - 88, z * 0.031 + 14, 3) - 0.5
+    r = Math.max(0, r * shade * (1 + hue * 0.3))
+    g = Math.max(0, g * shade * (1 + hue * 0.06))
+    b = Math.max(0, b * shade * (1 - hue * 0.34))
 
     const aboveWater = smoothstep(0.1, 1.6, y)
     if (aboveWater > 0) {
@@ -512,7 +573,9 @@ export function shadeTerrain(
         const c = CENTRES[j]
         const dist = Math.hypot(x - c.x, z - c.z)
         const w = smoothstep(c.d.padRadius * 2.6, c.d.padRadius * 0.6, dist)
-        if (w > 0) lerp(palette.districts[j], w * 0.28 * aboveWater)
+        // 0.28 read as a stain of a different paint sitting on the hillside.
+        // The tint is meant to be a hint of local character, not a decal.
+        if (w > 0) lerp(palette.districts[j], w * 0.16 * aboveWater)
       }
     }
 

@@ -4,6 +4,7 @@ import { Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
 import { prefersReducedMotion } from '../animations/gsap'
 import { sampleHeight } from './terrain'
+import { weather } from './surface'
 
 /**
  * The armillary globe, at the centre of the archipelago.
@@ -20,18 +21,31 @@ import { sampleHeight } from './terrain'
 export const MONUMENT_AT = { x: 0, z: -14 }
 
 const GLOBE = new THREE.SphereGeometry(4.6, 128, 96)
-const GLOBE_MAT = new THREE.MeshStandardMaterial({
-  color: '#2f6f9e',
-  roughness: 0.42,
-  metalness: 0.18,
-})
+const GLOBE_MAT = weather(
+  new THREE.MeshStandardMaterial({ color: '#2b6288', roughness: 0.46, metalness: 0.18 }),
+  // Fine and shallow: this is meant to read as an ocean painted onto a globe,
+  // so it wants the tooth of the paint rather than a rock face.
+  { grain: 3.4, mottle: 0.2, bump: 0.16, rough: 0.14 },
+)
 
 const LANDMASS = new THREE.SphereGeometry(1, 64, 44)
-const LANDMASS_MAT = new THREE.MeshStandardMaterial({ color: '#4f9d5e', roughness: 0.8 })
+const LANDMASS_MAT = weather(
+  new THREE.MeshStandardMaterial({ color: '#4a8d57', roughness: 0.84 }),
+  { grain: 6, mottle: 0.3, bump: 0.3, rough: 0.14 },
+)
 
-const BRASS = new THREE.MeshStandardMaterial({ color: '#b08d3f', roughness: 0.28, metalness: 0.88 })
-const STONE = new THREE.MeshStandardMaterial({ color: '#a8a297', roughness: 0.85 })
-const MARBLE = new THREE.MeshStandardMaterial({ color: '#e9e4da', roughness: 0.34 })
+const BRASS = weather(
+  new THREE.MeshStandardMaterial({ color: '#9c7f3f', roughness: 0.36, metalness: 0.85 }),
+  { grain: 9, mottle: 0.07, bump: 0.14, rough: 0.24 },
+)
+const STONE = weather(
+  new THREE.MeshStandardMaterial({ color: '#9d9a92', roughness: 0.88 }),
+  { grain: 5, mottle: 0.3, bump: 0.55, rough: 0.2 },
+)
+const MARBLE = weather(
+  new THREE.MeshStandardMaterial({ color: '#dcd6cb', roughness: 0.42 }),
+  { grain: 7, mottle: 0.14, bump: 0.22, rough: 0.1 },
+)
 
 /** The armillary rings: a meridian, an equator, and a tilted ecliptic. */
 const RING = new THREE.TorusGeometry(5.7, 0.13, 24, 200)

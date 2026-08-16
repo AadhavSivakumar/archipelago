@@ -184,14 +184,8 @@ export function islandOccluderGeometry() {
   return occluderBuilt
 }
 
-/*
-  Weathered at a scale the vertex grid cannot reach. The height field is
-  452x576 over 1200x1800 world units, so one quad is about 2.7 units across —
-  which is why the terrain read as felt however much fbm went into the heights.
-  Everything below three metres of detail has to come from the shader, and this
-  is where it comes from: the grass gets grain, the rock gets a pitted normal,
-  and the light finally has something to graze.
-*/
+/* Weathered at a scale the vertex grid cannot reach — see the note by the
+   weather() call further down, which has to run after the foam patch below. */
 export const ISLAND_MATERIAL = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 0.95,
@@ -248,11 +242,17 @@ ISLAND_MATERIAL.onBeforeCompile = (shader) => {
 /*
   Grain below the reach of the vertex grid.
 
-  The height field is 452x576 over 1200x1800 world units, so one quad spans
-  about 2.7 units — which is why the terrain read as felt however much fbm went
-  into the heights. There is no geometry under three metres, and there cannot
-  be without shipping a mesh nobody wants to download. Everything finer than
-  that has to come from the shader, and this is where it comes from.
+  The grid is 452x576, and it is graded rather than uniform: the parameter
+  range is +/-90 by +/-115 and grade() expands it cubically out to +/-600 by
+  +/-900. So the quads are about 0.4 units at the centre of the archipelago,
+  roughly 0.75 at the edge of a district island, and 1.7 by the time the
+  mainland is 80 units out — fine near the camera, and coarser exactly where
+  the fog is already taking it.
+
+  Even 0.4 units is a long way above the scale at which a surface stops looking
+  like a surface, and there is no way to close that with geometry: halving the
+  quad quadruples a mesh that already takes 390ms to build. Everything finer
+  than a quad has to come from the shader, and this is where it comes from.
 
   Applied here rather than at the declaration above on purpose: weather()
   chains onto whatever onBeforeCompile a material is carrying when it is

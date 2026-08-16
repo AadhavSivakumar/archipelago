@@ -69,12 +69,23 @@ const ACCENT = Object.fromEntries(
     std(
       {
         color: d.accent,
-        roughness: 0.3,
+        roughness: 0.36,
         metalness: 0.45,
+        /*
+          0.2, not the 0.4 this was raised to when bloom went in. Bloom made the
+          small accents — the torus knot, the monoliths, the canvas — read as
+          lit, which was the intent; but the same material also covers the
+          rotunda's five-metre dome, and at 0.4 a surface that size emits enough
+          of its own light to cancel its shading. It went flat and plastic. The
+          small pieces still catch the bloom threshold at 0.2 because they are
+          also the ones angled to take a specular highlight.
+        */
         emissive: new THREE.Color(d.accent),
-        emissiveIntensity: 0.4,
+        emissiveIntensity: 0.2,
       },
-      METAL,
+      // Slightly more tooth than plain METAL: these are the largest smooth
+      // surfaces in the scene, and they have the least to hide behind.
+      { grain: 6, mottle: 0.12, bump: 0.3, rough: 0.2 },
     ),
   ]),
 ) as Record<DistrictId, THREE.MeshStandardMaterial>
@@ -327,9 +338,55 @@ const DOME = new THREE.SphereGeometry(5.2, 192, 96, 0, Math.PI * 2, 0, Math.PI /
 const FINIAL = new THREE.SphereGeometry(0.55, 80, 56)
 const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 80)
 
-const ISLET_ROCK = new THREE.ConeGeometry(1.35, 2.6, 80)
-const ISLET_TOP = new THREE.CylinderGeometry(1.38, 1.38, 0.3, 80)
-const MONOLITH = new THREE.BoxGeometry(0.3, 1.9, 0.3)
+/*
+  The orbiting islets: a crag with turf on it, rather than a cone with a lid.
+
+  These were an 80-segment cone, an 80-segment disc and a box — three primitives
+  in their most recognisable form, floating at eye level right beside the
+  rotunda, which made them the most toy-like thing in the district however good
+  the rotunda got. Smoothness was working against them too: at 80 segments the
+  cone is perfectly round, so it reads as a machined part and the extra
+  triangles are spent making it read that way.
+
+  Sixteen segments instead, then roughened. The facets become hewn faces and the
+  displacement breaks the remaining regularity, which is the same treatment the
+  Alps menhirs get and for the same reason. Authored with y=0 at the turf line
+  and the root running negative, so the pieces stack at their real offsets
+  instead of being flipped into place.
+*/
+const ISLET_ROCK = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, -3.5) // the root tapers to a point rather than a flat cut
+  at(0.3, -2.8)
+  at(0.58, -2.05)
+  at(0.74, -1.55)
+  at(0.7, -1.2) // a waist, so the profile is not one straight taper
+  at(0.98, -0.8)
+  at(1.16, -0.42)
+  at(1.44, -0.1) // undercut lip: the overhang is what says "torn loose"
+  at(1.5, 0.06)
+  at(1.3, 0.16)
+  at(0, 0.16)
+  return roughen(new THREE.LatheGeometry(p, 16), 0.15)
+})()
+
+/** Turf, as a shallow cap that crowns the rock instead of capping it flat. */
+const ISLET_TURF = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, -0.06)
+  at(1.46, -0.06)
+  at(1.42, 0.08)
+  at(1.24, 0.22)
+  at(0.92, 0.33)
+  at(0.5, 0.41)
+  at(0, 0.44)
+  return roughen(new THREE.LatheGeometry(p, 20), 0.07)
+})()
+
+/** A standing stone on each islet, not a cast bar. */
+const MONOLITH = roughen(new THREE.CylinderGeometry(0.15, 0.26, 1.9, 5, 3), 0.055)
 
 const COLONNADE = Array.from({ length: 14 }, (_, i) => {
   const a = (i / 14) * Math.PI * 2
@@ -370,19 +427,24 @@ export function IdeologyIsles() {
 
       {/* noShadow: still rotating after the shadow map freezes. */}
       <group ref={orbit} position={[0, 7, 0]} userData={{ noShadow: true }}>
+        {/*
+          Each islet is turned to its own bearing so the four are not one shape
+          repeated four times around a circle, which is exactly how it reads
+          when they share a rotation and the group spins them past the camera.
+        */}
         <Instances geometry={ISLET_ROCK} material={mat.darkStone} limit={ISLETS.length}>
-          {ISLETS.map(([x, y, z], i) => (
-            <Instance key={i} position={[x, y - 1.45, z]} rotation={[Math.PI, 0, 0]} />
+          {ISLETS.map((p, i) => (
+            <Instance key={i} position={p} rotation={[0, i * 1.27, 0]} />
           ))}
         </Instances>
-        <Instances geometry={ISLET_TOP} material={mat.leafWarm} limit={ISLETS.length}>
-          {ISLETS.map((p, i) => (
-            <Instance key={i} position={p} />
+        <Instances geometry={ISLET_TURF} material={mat.leafWarm} limit={ISLETS.length}>
+          {ISLETS.map(([x, y, z], i) => (
+            <Instance key={i} position={[x, y + 0.16, z]} rotation={[0, i * 0.83, 0]} />
           ))}
         </Instances>
         <Instances geometry={MONOLITH} material={ACCENT.ideology} limit={ISLETS.length}>
           {ISLETS.map(([x, y, z], i) => (
-            <Instance key={i} position={[x, y + 1.1, z]} />
+            <Instance key={i} position={[x, y + 1.45, z]} rotation={[0, i * 1.9, 0]} />
           ))}
         </Instances>
       </group>
@@ -560,8 +622,10 @@ const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 48)
 const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 128)
 const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
 
-const MAP_LAND_MAT = std({ color: '#4f9d5e', roughness: 0.82 })
-const MAP_SEA_MAT = std({ color: '#2f6f9e', roughness: 0.5, metalness: 0.12 })
+// Deepened along with the terrain palette. At full saturation the map face read
+// as a lit panel rather than as an inlaid stone table.
+const MAP_LAND_MAT = std({ color: '#4a8455', roughness: 0.85 }, { grain: 4, mottle: 0.24, bump: 0.3, rough: 0.14 })
+const MAP_SEA_MAT = std({ color: '#28607f', roughness: 0.55, metalness: 0.12 }, DRESSED)
 
 export function GeographicalGarden({ d }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])

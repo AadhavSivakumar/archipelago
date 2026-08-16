@@ -201,7 +201,37 @@ const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science'])
  * The seeds are arbitrary but fixed: each island wobbles its own way, and two
  * islands of the same radius should not be the same shape.
  */
-const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
+/**
+ * Ridge frequency on the mainland, in cycles per world unit.
+ *
+ * A wavelength of about 29 units, which is right for a landmass hundreds of
+ * units across and much too coarse for anything smaller — see ISLE_CREST.
+ */
+const MAINLAND_CREST = 0.035
+
+/**
+ * Ridge frequency for an island of a given radius.
+ *
+ * Running every landmass at MAINLAND_CREST was correct for the mainland and
+ * wrong for everything else: an island of radius 25 is 50 units across, so a
+ * 29-unit ridge fits through it not quite twice. One and a half ridges is not a
+ * ridge system, it is a bulge — which is why the mainland gained ridgelines
+ * from the ridged multifractal while the islands stayed smooth mounds.
+ *
+ * Scaling to a fixed count of ridges per diameter (about three and a half)
+ * makes every island read at the same level of detail regardless of size,
+ * rather than making small ones look like unresolved large ones.
+ *
+ * The ceiling is the vertex grid, and it binds on the islets. Spacing runs
+ * about 0.4 units at the centre of the archipelago and stretches toward the
+ * rim, so past roughly 0.12 the ridges are finer than the quads that would have
+ * to carry them and the field aliases instead of resolving. The small islets
+ * therefore stay slightly under-detailed by this rule, which is the right place
+ * to lose it: they are a few pixels across at the home view.
+ */
+const ISLE_CREST = (radius: number) => clamp(1.75 / radius, MAINLAND_CREST, 0.12)
+
+const ISLES: { x: number; z: number; radius: number; seed: number; crest: number }[] = [
   ...DISTRICTS.filter((d) => !MAINLAND_DISTRICTS.has(d.id)).map((d, i) => {
     const [x, z] = districtCentre(d)
     /*
@@ -212,7 +242,8 @@ const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
       multiplier was raised until the narrowest bearing on every island still
       had beach beyond the plateau skirt.
     */
-    return { x, z, radius: d.padRadius * 2.75 + 4, seed: i * 13 + 3 }
+    const radius = d.padRadius * 2.75 + 4
+    return { x, z, radius, seed: i * 13 + 3, crest: ISLE_CREST(radius) }
   }),
   /*
     The centre island. Carries no district — it exists to hold the armillary
@@ -220,18 +251,18 @@ const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
     territories set around it rather than being one exhibit inside one of them.
     Sized so the monument has a shoulder of land and nothing else fits.
   */
-  { x: 0, z: -14, radius: 13, seed: 101 },
+  { x: 0, z: -14, radius: 13, seed: 101, crest: ISLE_CREST(13) },
 
   // Uninhabited. Clear of the district islands, clear of the centre, and clear
   // of the open water on the +Z side, which is meant to stay open.
-  { x: -14, z: 40, radius: 6.5, seed: 207 },
-  { x: 16, z: 44, radius: 4.5, seed: 214 },
-  { x: -74, z: 8, radius: 6.0, seed: 221 },
-  { x: 74, z: 2, radius: 7.0, seed: 228 },
-  { x: 10, z: -40, radius: 5.0, seed: 235 },
-  { x: -26, z: -42, radius: 5.5, seed: 242 },
-  { x: 76, z: 48, radius: 4.0, seed: 249 },
-  { x: -78, z: 48, radius: 5.0, seed: 256 },
+  { x: -14, z: 40, radius: 6.5, seed: 207, crest: ISLE_CREST(6.5) },
+  { x: 16, z: 44, radius: 4.5, seed: 214, crest: ISLE_CREST(4.5) },
+  { x: -74, z: 8, radius: 6.0, seed: 221, crest: ISLE_CREST(6.0) },
+  { x: 74, z: 2, radius: 7.0, seed: 228, crest: ISLE_CREST(7.0) },
+  { x: 10, z: -40, radius: 5.0, seed: 235, crest: ISLE_CREST(5.0) },
+  { x: -26, z: -42, radius: 5.5, seed: 242, crest: ISLE_CREST(5.5) },
+  { x: 76, z: 48, radius: 4.0, seed: 249, crest: ISLE_CREST(4.0) },
+  { x: -78, z: 48, radius: 5.0, seed: 256, crest: ISLE_CREST(5.0) },
 ]
 
 /** Where the mainland's coast runs, before its wobble. Land lies further -Z. */
@@ -297,7 +328,31 @@ function rimFade(x: number, z: number) {
 }
 
 function landMask(x: number, z: number) {
-  let mask = smoothstep(coastZ(x), coastZ(x) - MAINLAND_SHELF, z)
+  const main = smoothstep(coastZ(x), coastZ(x) - MAINLAND_SHELF, z)
+  let mask = main
+
+  /*
+    The ridge field is accumulated here rather than sampled once in
+    sampleHeight, because its frequency is a property of the landmass and this
+    is the only place that knows which landmass a point belongs to.
+
+    Blended by each mass's own coverage rather than taken from whichever one
+    wins the `max` above. A hard switch would put a seam wherever two fields of
+    different frequency met at equal strength, and the mainland overlaps the
+    nearer islands over tens of units, so that seam would be visible. Weighting
+    by coverage crossfades instead — and where only one mass covers a point,
+    which is almost everywhere, it reduces to that mass's own field exactly.
+  */
+  // Guarded, not just multiplied by zero. Most of the plane is open water with
+  // main === 0, and this function runs once per vertex over a quarter of a
+  // million of them — an unconditional four-octave ridged() there would be
+  // sixteen hashes per sample bought for nothing.
+  let crestSum = 0
+  let crestWeight = 0
+  if (main > 0) {
+    crestSum = main * ridged(x * MAINLAND_CREST - 12, z * MAINLAND_CREST + 31, 4)
+    crestWeight = main
+  }
 
   for (const isle of ISLES) {
     // Cheap rejection first: the vast majority of samples are nowhere near any
@@ -331,10 +386,18 @@ function landMask(x: number, z: number) {
     */
     const bevel = 0.525 + 0.225 * signedFbm(x * f * 1.7 - isle.seed, z * f * 1.7 + isle.seed, 2)
     const here = smoothstep(wobble, wobble * bevel, dist)
+    if (here === 0) continue
     if (here > mask) mask = here
+
+    const c = isle.crest
+    crestSum += here * ridged(x * c + isle.seed, z * c - isle.seed, 4)
+    crestWeight += here
   }
 
-  return mask * rimFade(x, z)
+  return {
+    land: mask * rimFade(x, z),
+    crest: crestWeight > 0 ? crestSum / crestWeight : 0,
+  }
 }
 
 /**
@@ -374,7 +437,7 @@ function shelfMask(x: number, z: number) {
  * high is the ground here?", so the two can never drift apart.
  */
 export function sampleHeight(x: number, z: number) {
-  const land = landMask(x, z)
+  const { land, crest } = landMask(x, z)
   const shelf = shelfMask(x, z)
 
   // Roughly two thirds of the plane is open water, and none of it needs a
@@ -395,7 +458,6 @@ export function sampleHeight(x: number, z: number) {
     the point of having ridges at all.
   */
   const rolling = fbm(x * 0.03 + 5, z * 0.03 + 5, 4)
-  const crest = ridged(x * 0.035 - 12, z * 0.035 + 31, 4)
   let h = Math.pow(land, 1.4) * (1.4 + 5.2 * rolling + 4.6 * crest)
 
   /*
@@ -605,7 +667,15 @@ export function shadeTerrain(
       pushed up: at the old thresholds the mountain went white above 17 and
       became a featureless meringue with no rock showing anywhere.
     */
-    const slopeRock = smoothstep(0.88, 0.5, normals[i * 3 + 1]) * 0.85
+    /*
+      Retuned once the ridged field went in. The thresholds were set against a
+      landscape of smooth mounds, where a normal tilted far enough to trip them
+      really was a cliff; with ridgelines and valleys, moderate flanks are
+      everywhere and the same rule stripped the islands back to scree. Grass
+      holds on ground far steeper than 30 degrees in reality — it is the
+      near-vertical faces that stay bare.
+    */
+    const slopeRock = smoothstep(0.72, 0.34, normals[i * 3 + 1]) * 0.8
     lerp(palette.rock, slopeRock)
     lerp(palette.snow, smoothstep(15.5, 23.0, y) * (1 - 0.75 * slopeRock))
 

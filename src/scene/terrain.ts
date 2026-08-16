@@ -49,7 +49,14 @@ const PALETTE: Palette = {
   sand: rgb('#c0b18e'),
   grass: rgb('#77895b'),
   forest: rgb('#4c6244'),
-  rock: rgb('#7f776a'),
+  /*
+    Cooled from #7f776a. That was a warm grey, and once the hue drift in
+    shadeTerrain pushed patches of it further toward red the Alps stopped
+    reading as a mountain and started reading as a sand dune — which is a
+    problem the geometry could not have fixed, because the shape was right and
+    only the colour was wrong. Rock at altitude is grey with blue in it.
+  */
+  rock: rgb('#71737a'),
   snow: rgb('#eef2f8'),
   districts: DISTRICTS.map((d) => rgb(d.color)),
 }

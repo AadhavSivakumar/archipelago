@@ -55,7 +55,9 @@ const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
   transparent: true,
   // Lower than before: lobes overlap, and the overlaps are what give a cloud
   // its density. At 0.62 each the stacked centres went solid.
-  opacity: 0.34,
+  // Raised from 0.34: at 250-440 units the fog already takes most of them,
+  // and what came through was too faint to register as sky at all.
+  opacity: 0.46,
   // Depth-write off so overlapping puffs in one cloud do not cut each other.
   depthWrite: false,
 })
@@ -81,25 +83,42 @@ const CLOUD_LOBES = (() => {
     rotation: number
   }[] = []
 
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 16; i++) {
     const angle = rand() * Math.PI * 2
-    // Beyond the archipelago (which reaches ~85 units out) but inside the fog's
-    // far plane, so they sit in the haze rather than as hard shapes.
     /*
-      Pushed out and up. At 105-190 units and a height of 28-36 the clouds sat
-      BELOW the horizon from the home camera, so they painted as grey scum
-      across the water instead of as sky. Cloud has to be above the horizon
-      line, which means above the camera, which means well above 58.
+      Height derived from the framing rather than chosen, because a downward-
+      looking camera leaves only a sliver of sky and a guess lands outside it
+      every time. This has now been wrong in both directions: at y=28-36 the
+      clouds were below the horizon and painted as grey scum across the water,
+      and the correction to y=96-142 overshot so far that all thirteen sat above
+      the top of the frame and the sky was simply empty.
+
+      So: the home camera sits at y=40 and looks from z=92 toward z=-30, which
+      is 14.7 degrees below horizontal, and the vertical fov is 42. The top of
+      the frustum is therefore 21 - 14.7 = 6.3 degrees ABOVE horizontal, and
+      anything at a lower elevation than 0 is below the horizon line. The whole
+      sky this scene has is that 6.3-degree band.
+
+      Placing them at a fixed 3.55 degrees — the middle of the band — makes the
+      height a function of the distance rather than an independent number, so
+      near and far clouds sit on the same line of sight instead of stacking. It
+      also means this stays correct if the ring is widened: only the elevation
+      is a constant, and it is the one with a stated reason.
+
+      The radius is bounded by the fog, not by the frustum. Fog runs 200-560, so
+      at 250-440 the clouds come through at roughly 15-65 percent haze — present
+      as sky, never as hard white shapes pasted over the horizon.
     */
-    const radius = 210 + rand() * 190
+    const radius = 250 + rand() * 190
     const cx = Math.cos(angle) * radius
     const cz = Math.sin(angle) * radius
-    // The home shot looks DOWN, so there is a hard ceiling on what is on-screen
-    // at all: measured against the framing, the frustum's top plane runs from
-    // y=54 over the near water to y=40 above the mainland. This band clears the
-    // Alps (~26 at their peaks) and stays under the lowest part of it.
-    const cy = 96 + rand() * 46
-    const width = 34 + rand() * 40
+    // Spread across 2.6-4.9 degrees rather than pinned to one. A single
+    // elevation put every cloud on one ruled line above the horizon, which
+    // reads as a band rather than as weather; a range keeps them stacked in
+    // depth without letting any of them leave the sliver.
+    const cy = 40 + radius * (0.045 + rand() * 0.04)
+    // Wider than before: at 250+ units out, a 34-unit puff is a smudge.
+    const width = 46 + rand() * 54
     const heading = rand() * Math.PI
     const count = 4 + Math.floor(rand() * 4)
 

@@ -120,6 +120,43 @@ function noise2(x: number, y: number) {
   return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v
 }
 
+/**
+ * Ridged multifractal.
+ *
+ * fbm produces rounded hills, because it is a sum of smooth noise and its
+ * extrema are smooth. Folding each octave about its midpoint — 1 - |2n - 1| —
+ * turns every zero crossing into a crease, and squaring sharpens the crease
+ * into a crest with concave flanks. That is the difference between a landscape
+ * of mounds and one with ridgelines, spurs and valleys between them, and it is
+ * the reason the islands read as domes no matter how much detail is layered on
+ * top: the underlying field has no ridges in it to detail.
+ *
+ * Each octave is also weighted by the previous one, which is what makes it
+ * multifractal rather than merely ridged: fine detail accumulates on the high
+ * ground and the valleys stay smooth, the way erosion actually leaves a
+ * catchment. Without the weighting the crests are uniformly noisy and the
+ * result looks like crumpled foil.
+ */
+function ridged(x: number, y: number, octaves: number) {
+  let sum = 0
+  let amp = 0.5
+  let freq = 1
+  let norm = 0
+  let prev = 1
+
+  for (let i = 0; i < octaves; i++) {
+    let n = 1 - Math.abs(2 * noise2(x * freq, y * freq) - 1)
+    n *= n
+    sum += amp * n * prev
+    norm += amp
+    prev = n
+    freq *= 2.03
+    amp *= 0.5
+  }
+
+  return sum / norm
+}
+
 function fbm(x: number, y: number, octaves: number) {
   let sum = 0
   let amp = 0.5
@@ -275,7 +312,25 @@ function landMask(x: number, z: number) {
     const f = 2.4 / isle.radius
     const wobble =
       isle.radius * (0.85 + 0.225 * signedFbm(x * f + isle.seed, z * f - isle.seed, 3))
-    const here = smoothstep(wobble, wobble * 0.52, dist)
+
+    /*
+      How far in the shore takes to reach full height, varied around the island
+      rather than fixed at 0.52.
+
+      A constant made every coast the same gradient, which is what gave the
+      islands their bevelled-cupcake edge — the outline wobbled but the profile
+      through it was identical at every bearing. Real coasts alternate: a
+      headland takes the sea head-on and stands as a cliff, the bay behind it is
+      sheltered and shelves gently into a beach. Running the falloff width on
+      its own noise field, at a higher frequency than the outline, produces that
+      alternation and gives the silhouette somewhere to break.
+
+      Only the above-water profile is affected; shelfMask still owns everything
+      below the waterline, so this cannot recreate the sea walls it was written
+      to fix.
+    */
+    const bevel = 0.525 + 0.225 * signedFbm(x * f * 1.7 - isle.seed, z * f * 1.7 + isle.seed, 2)
+    const here = smoothstep(wobble, wobble * bevel, dist)
     if (here > mask) mask = here
   }
 
@@ -326,7 +381,22 @@ export function sampleHeight(x: number, z: number) {
   // district loop or a four-octave fbm to decide it is at seabed depth.
   if (land === 0 && shelf === 0) return -SEABED
 
-  let h = Math.pow(land, 1.4) * (1.6 + 7.5 * fbm(x * 0.03 + 5, z * 0.03 + 5, 4))
+  /*
+    Elevation: a rolling base plus a ridge system.
+
+    This was fbm alone, and fbm alone is a field of domes — which is exactly
+    what the islands looked like. The ridged term supplies crests and the
+    valleys between them; the fbm underneath keeps the whole thing from
+    becoming a uniform set of knife edges, which ridged noise does on its own.
+
+    Weights chosen to leave the mean height where it was, so the colour bands,
+    the snow line and everything placed against sampleHeight keep their
+    relationship to the land. The peaks come out higher than before, which is
+    the point of having ridges at all.
+  */
+  const rolling = fbm(x * 0.03 + 5, z * 0.03 + 5, 4)
+  const crest = ridged(x * 0.035 - 12, z * 0.035 + 31, 4)
+  let h = Math.pow(land, 1.4) * (1.4 + 5.2 * rolling + 4.6 * crest)
 
   /*
     Fine relief, added BEFORE the plateau flatten so the pads stay level.

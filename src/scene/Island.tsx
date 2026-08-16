@@ -1,4 +1,4 @@
-import { useMemo, useRef, type RefObject } from 'react'
+import { use, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
@@ -29,9 +29,20 @@ type IslandProps = {
 export function Island({ occluderRef, deepLinked }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
-  // Both getters cache at module scope, so these are lookups rather than
-  // rebuilds — useMemo is here to say so at the call site.
-  const geometry = useMemo(() => islandGeometry(), [])
+  /*
+    The display mesh is built on a worker, so this suspends until it arrives —
+    the nearest <Suspense> is in Scene, which lets the sky, the ocean and the
+    ambient layer paint immediately instead of the page holding a blank canvas
+    for the ~390ms the build takes.
+
+    islandGeometry() caches its promise, so re-rendering (StrictMode renders
+    this twice on purpose) resolves against the same one rather than suspending
+    forever on a fresh promise each pass.
+  */
+  const geometry = use(islandGeometry())
+
+  // The occluder stays synchronous: it is cheap, and the labels raycast against
+  // it from the frame they mount.
   const occluder = useMemo(() => islandOccluderGeometry(), [])
 
   useGSAP(() => {

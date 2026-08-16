@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { Suspense, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   Environment,
@@ -206,10 +206,25 @@ export function Scene({ focus, onFocus }: Props) {
         shadow-camera-bottom={-100}
       />
 
-      <Island occluderRef={occluder} deepLinked={deepLinked} />
       <Water />
       <Ambient />
-      <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
+
+      {/*
+        The island's geometry is built on a worker, so Island suspends. Sky,
+        ocean, lighting and the ambient layer sit OUTSIDE this boundary and
+        paint on the first frame; the land arrives when it is ready and plays
+        its reveal then.
+
+        Districts is inside the same boundary on purpose. Its labels raycast
+        their occlusion against a ref that Island owns, and three's raycaster
+        dereferences whatever it is handed — an undefined entry in that array
+        throws on every frame. Mounting the two together means the ref is never
+        empty while something is reading it.
+      */}
+      <Suspense fallback={null}>
+        <Island occluderRef={occluder} deepLinked={deepLinked} />
+        <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
+      </Suspense>
 
       <AdaptiveDpr />
       <IdleOrbit active={idle && focus === null && !flying} />

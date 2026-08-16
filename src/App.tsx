@@ -53,7 +53,7 @@ export function App() {
 
         <header className="panel__head">
           <h1>Archipelago</h1>
-          <p>One island, six territories of knowledge.</p>
+          <p>An archipelago of six territories of knowledge.</p>
         </header>
 
         <nav id="territory-list" className="panel__list" aria-label="Territories">
@@ -87,7 +87,7 @@ export function App() {
           onClick={() => setFocus(null)}
           disabled={focus === null}
         >
-          Back to the whole island
+          Back to the whole archipelago
         </button>
       </header>
 
@@ -98,7 +98,7 @@ export function App() {
         mutations, not the content it mounts with.
       */}
       <p className="sr-only" aria-live="polite">
-        {focused ? `Viewing ${focused.name}.` : 'Viewing the whole island.'}
+        {focused ? `Viewing ${focused.name}.` : 'Viewing the whole archipelago.'}
       </p>
 
       {/*
@@ -116,7 +116,7 @@ export function App() {
         <ErrorBoundary
           fallback={
             <div className="scene-down" role="status">
-              <p>This island needs WebGL, and your browser did not start it.</p>
+              <p>This archipelago needs WebGL, and your browser did not start it.</p>
               <p>The territories are all still listed — try a different browser to walk them.</p>
             </div>
           }

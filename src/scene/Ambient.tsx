@@ -52,33 +52,69 @@ const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 1,
   metalness: 0,
   transparent: true,
-  opacity: 0.62,
+  // Lower than before: lobes overlap, and the overlaps are what give a cloud
+  // its density. At 0.62 each the stacked centres went solid.
+  opacity: 0.42,
   // Depth-write off so overlapping puffs in one cloud do not cut each other.
   depthWrite: false,
 })
 
-const CLOUDS = (() => {
+/**
+ * Clouds, as clusters of overlapping lobes rather than one squashed sphere
+ * each.
+ *
+ * A single ellipsoid reads as a lozenge no matter how many segments it has —
+ * smoothness is not the same thing as shape. What makes a cloud legible is an
+ * irregular, heaped silhouette, which costs nothing here: every lobe of every
+ * cloud is an instance of the same sphere, so the whole sky is still one draw
+ * call.
+ *
+ * Lobes shrink and sag toward the ends of each cloud, so the mass piles up in
+ * the middle instead of running as an even sausage.
+ */
+const CLOUD_LOBES = (() => {
   const rand = rng(0xc10d)
-  return Array.from({ length: 11 }, () => {
+  const lobes: {
+    position: [number, number, number]
+    scale: [number, number, number]
+    rotation: number
+  }[] = []
+
+  for (let i = 0; i < 13; i++) {
     const angle = rand() * Math.PI * 2
     // Beyond the archipelago (which reaches ~85 units out) but inside the fog's
     // far plane, so they sit in the haze rather than as hard shapes.
     const radius = 105 + rand() * 85
-    return {
-      position: [
-        Math.cos(angle) * radius,
-        // The home shot looks DOWN, so there is a hard ceiling on what is
-        // on-screen at all: measured against the new framing, the frustum's top
-        // plane runs from y=54 over the near water to y=40 above the mainland.
-        // This band clears the Alps (~26 at their peaks) and stays under the
-        // lowest part of that ceiling.
-        28 + rand() * 9,
-        Math.sin(angle) * radius,
-      ] as [number, number, number],
-      scale: [22 + rand() * 24, 5 + rand() * 3.5, 16 + rand() * 18] as [number, number, number],
-      rotation: rand() * Math.PI,
+    const cx = Math.cos(angle) * radius
+    const cz = Math.sin(angle) * radius
+    // The home shot looks DOWN, so there is a hard ceiling on what is on-screen
+    // at all: measured against the framing, the frustum's top plane runs from
+    // y=54 over the near water to y=40 above the mainland. This band clears the
+    // Alps (~26 at their peaks) and stays under the lowest part of it.
+    const cy = 28 + rand() * 8
+    const width = 20 + rand() * 24
+    const heading = rand() * Math.PI
+    const count = 4 + Math.floor(rand() * 4)
+
+    for (let k = 0; k < count; k++) {
+      // -1 at one end of the cloud, +1 at the other.
+      const t = count === 1 ? 0 : (k / (count - 1) - 0.5) * 2
+      const taper = t * t
+      const size = (1 - 0.5 * taper) * (0.62 + rand() * 0.5)
+      const along = t * width * 0.75 + (rand() - 0.5) * 4
+
+      lobes.push({
+        position: [
+          cx + Math.cos(heading) * along + (rand() - 0.5) * 5,
+          cy - taper * 2.4 + (rand() - 0.5) * 2.2,
+          cz + Math.sin(heading) * along + (rand() - 0.5) * 5,
+        ],
+        scale: [width * 0.4 * size, width * 0.16 * size, width * 0.33 * size],
+        rotation: rand() * Math.PI,
+      })
     }
-  })
+  }
+  return lobes
 })()
 
 // ---------------------------------------------------------------------------
@@ -202,8 +238,8 @@ export function Ambient() {
   return (
     <group>
       <group ref={clouds}>
-        <Instances geometry={cloudGeometry} material={CLOUD_MATERIAL} limit={CLOUDS.length}>
-          {CLOUDS.map((c, i) => (
+        <Instances geometry={cloudGeometry} material={CLOUD_MATERIAL} limit={CLOUD_LOBES.length}>
+          {CLOUD_LOBES.map((c, i) => (
             <Instance key={i} position={c.position} scale={c.scale} rotation={[0, c.rotation, 0]} />
           ))}
         </Instances>

@@ -177,16 +177,24 @@ const ISLES: { x: number; z: number; radius: number; seed: number }[] = [
     */
     return { x, z, radius: d.padRadius * 2.75 + 4, seed: i * 13 + 3 }
   }),
-  // Uninhabited. Placed clear of the district islands, and clear of the open
-  // water on the +Z side, which is meant to stay open.
-  { x: -8, z: 38, radius: 6.5, seed: 207 },
-  { x: 18, z: 34, radius: 4.5, seed: 214 },
-  { x: -62, z: 4, radius: 6.0, seed: 221 },
-  { x: 62, z: -4, radius: 7.0, seed: 228 },
-  { x: 8, z: -36, radius: 5.0, seed: 235 },
-  { x: -24, z: -38, radius: 5.5, seed: 242 },
-  { x: 60, z: 34, radius: 4.0, seed: 249 },
-  { x: -58, z: 36, radius: 5.0, seed: 256 },
+  /*
+    The centre island. Carries no district — it exists to hold the armillary
+    globe, which now stands at the middle of the archipelago with the six
+    territories set around it rather than being one exhibit inside one of them.
+    Sized so the monument has a shoulder of land and nothing else fits.
+  */
+  { x: 0, z: -14, radius: 13, seed: 101 },
+
+  // Uninhabited. Clear of the district islands, clear of the centre, and clear
+  // of the open water on the +Z side, which is meant to stay open.
+  { x: -14, z: 40, radius: 6.5, seed: 207 },
+  { x: 16, z: 44, radius: 4.5, seed: 214 },
+  { x: -74, z: 8, radius: 6.0, seed: 221 },
+  { x: 74, z: 2, radius: 7.0, seed: 228 },
+  { x: 10, z: -40, radius: 5.0, seed: 235 },
+  { x: -26, z: -42, radius: 5.5, seed: 242 },
+  { x: 76, z: 48, radius: 4.0, seed: 249 },
+  { x: -78, z: 48, radius: 5.0, seed: 256 },
 ]
 
 /** Where the mainland's coast runs, before its wobble. Land lies further -Z. */

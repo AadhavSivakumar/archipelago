@@ -63,6 +63,42 @@ function rng(seed: number) {
   }
 }
 
+
+/**
+ * Deterministically perturbs a geometry's vertices, so a turned or extruded
+ * form stops looking machined.
+ *
+ * The offset is keyed off the vertex POSITION rather than its index. Most of
+ * three's primitives duplicate vertices — at a cylinder's seam, or per-face on
+ * a polyhedron — and jittering those independently tears the surface open.
+ * Hashing the position means coincident vertices always move together, so the
+ * mesh stays closed without a merge pass.
+ */
+function roughen(geo: THREE.BufferGeometry, amount: number) {
+  const pos = geo.attributes.position as THREE.BufferAttribute
+  const key = (v: number) => Math.round(v * 1000)
+  const offsets = new Map<string, [number, number, number]>()
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const z = pos.getZ(i)
+    const k = `${key(x)},${key(y)},${key(z)}`
+
+    let off = offsets.get(k)
+    if (!off) {
+      const r = rng((Math.imul(key(x), 73856093) ^ Math.imul(key(y), 19349663) ^ Math.imul(key(z), 83492791)) >>> 0)
+      off = [(r() - 0.5) * amount, (r() - 0.5) * amount, (r() - 0.5) * amount]
+      offsets.set(k, off)
+    }
+    pos.setXYZ(i, x + off[0], y + off[1], z + off[2])
+  }
+
+  pos.needsUpdate = true
+  geo.computeVertexNormals()
+  return geo
+}
+
 type Scattered = { position: [number, number, number]; rotation: number; scale: number }
 
 /**
@@ -160,8 +196,46 @@ function findShore(d: District, dirX: number, dirZ: number, from: number, radius
 // ===========================================================================
 
 const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 160)
-const COLUMN = new THREE.CylinderGeometry(0.3, 0.36, 4.8, 96)
-const CAPITAL = new THREE.BoxGeometry(0.95, 0.3, 0.95)
+/**
+ * A column, turned rather than extruded.
+ *
+ * A cylinder plus a box for the capital is two primitives pretending to be
+ * architecture, and no amount of radial subdivision changes that — the
+ * silhouette is still a tube with a lid. A lathe costs the same to draw and
+ * gives the whole profile: a moulded base, a shaft with entasis (the slight
+ * convex swell that stops a column looking pinched), a necking ring, and a
+ * flared echinus under a square-edged abacus.
+ *
+ * Base and capital are part of the same turned form now, so this replaces two
+ * <Instances> blocks with one.
+ */
+const COLUMN = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+
+  at(0, 0)          // closes the underside
+  at(0.46, 0)
+  at(0.46, 0.14)    // plinth
+  at(0.40, 0.21)
+  at(0.385, 0.30)   // shaft springs
+
+  // Entasis: the radius swells about a third of the way up before tapering, so
+  // the shaft reads as load-bearing instead of as a pipe.
+  for (let i = 1; i <= 12; i++) {
+    const t = i / 12
+    at(0.385 - 0.085 * t + 0.022 * Math.sin(Math.PI * t), 0.30 + t * 4.0)
+  }
+
+  at(0.318, 4.38)   // necking
+  at(0.292, 4.46)
+  at(0.305, 4.53)
+  at(0.47, 4.82)    // echinus
+  at(0.505, 4.88)
+  at(0.505, 5.10)   // abacus
+  at(0, 5.10)       // closes the top
+
+  return new THREE.LatheGeometry(p, 72)
+})()
 const ENTABLATURE = new THREE.CylinderGeometry(5.6, 5.6, 0.7, 160)
 const DOME = new THREE.SphereGeometry(5.2, 192, 96, 0, Math.PI * 2, 0, Math.PI / 2)
 const FINIAL = new THREE.SphereGeometry(0.55, 80, 56)
@@ -195,14 +269,11 @@ export function IdeologyIsles() {
       <mesh geometry={STEP} scale={[6.7, 1, 6.7]} position={[0, 0.66, 0]} material={mat.stone} />
       <mesh geometry={STEP} scale={[6.1, 1, 6.1]} position={[0, 1.1, 0]} material={mat.marble} />
 
+      {/* Stood on the top step at y 1.32; the turned profile carries its own
+          base and capital, so the shaft reaches the entablature unaided. */}
       <Instances geometry={COLUMN} material={mat.marble} limit={COLONNADE.length}>
         {COLONNADE.map(([x, z], i) => (
-          <Instance key={i} position={[x, 3.72, z]} />
-        ))}
-      </Instances>
-      <Instances geometry={CAPITAL} material={mat.marble} limit={COLONNADE.length}>
-        {COLONNADE.map(([x, z], i) => (
-          <Instance key={i} position={[x, 6.27, z]} />
+          <Instance key={i} position={[x, 1.32, z]} rotation={[0, (i * Math.PI) / 7, 0]} />
         ))}
       </Instances>
 
@@ -249,7 +320,12 @@ const SHRINE = new THREE.BoxGeometry(2.2, 1.7, 2.2)
 
 const OBELISK_SHAFT = new THREE.CylinderGeometry(0.42, 0.62, 7.4, 4)
 const OBELISK_CAP = new THREE.ConeGeometry(0.6, 1.3, 4)
-const RUIN_COLUMN = new THREE.CylinderGeometry(0.38, 0.44, 1, 88)
+/*
+  A broken shaft. Unit height so the per-instance scale can set how much of each
+  column is left standing, and roughened at a modest amount so the snapped top
+  and weathered sides do not read as machined.
+*/
+const RUIN_COLUMN = roughen(new THREE.CylinderGeometry(0.38, 0.44, 1, 40, 4), 0.035)
 const ARCH_PIER = new THREE.BoxGeometry(1.1, 4, 1.4)
 const ARCH_VAULT = new THREE.TorusGeometry(2.2, 0.55, 64, 208, Math.PI)
 const ARCH_LINTEL = new THREE.BoxGeometry(6.4, 1.1, 1.6)
@@ -302,134 +378,151 @@ export function HistoricalHabitat() {
 }
 
 // ===========================================================================
-// Geographical Garden — armillary globe over a formal parterre
+// Geographical Garden — a cartesian world map, laid out as a parterre
 // ===========================================================================
 
-// 64x48 was 6,016 triangles for a 3.2-unit sphere. 32x24 is 1,472 and reads
-// identically at the size it occupies on screen.
-const GLOBE = new THREE.SphereGeometry(3.2, 192, 144)
-const GLOBE_MAT = std({ color: '#2f6f9e', roughness: 0.45, metalness: 0.15 })
-const LANDMASS = new THREE.SphereGeometry(1, 80, 56)
-const LANDMASS_MAT = std({ color: '#4f9d5e', roughness: 0.8 })
-// Drawn three times (306-308). At tube radius 0.1 nobody can see 20 radial
-// segments: 5,120 triangles each becomes 1,024, saving 12,288 across the three.
-const RING = new THREE.TorusGeometry(4.05, 0.1, 32, 256)
-const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 128)
-const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
+/*
+  A map, not a globe.
+
+  The globe moved to the centre island (Monument.tsx) — the model of the world
+  belongs at the middle of the world, not off in one territory. What the Garden
+  gets instead is the other way of drawing the Earth: an equirectangular plate
+  with the graticule ruled across it and the continents standing proud, laid out
+  flat the way a formal parterre is. Two representations of the same subject,
+  each doing what the other cannot.
+
+  Map space is degrees. MAP_SCALE converts to world units, so the plate is
+  360 x 180 degrees = 21.6 x 10.8 units, and everything on it is authored in
+  longitude and latitude.
+*/
+/*
+  Sized to the ground it sits on, not chosen for convenience. The plate is a
+  rigid slab, so any part of it past the flattened plateau either floats or
+  buries itself — and the plateau here is measurably flat only to a radius of 8
+  (spread 0.20 units at r=8; 1.52 at r=9). A 2:1 plate inscribed in that circle
+  can be at most 14.3 x 7.2 including its kerb, which puts the scale at 0.035
+  degrees per world unit.
+*/
+const MAP_SCALE = 0.035
+const MAP_W = 360 * MAP_SCALE
+const MAP_D = 180 * MAP_SCALE
+
+const MAP_PLATE = new THREE.BoxGeometry(MAP_W + 1.1, 0.42, MAP_D + 1.1)
+const MAP_FACE = new THREE.BoxGeometry(MAP_W, 0.1, MAP_D)
+
+/** Longitude/latitude to plate-local (x, z). North is -Z, so latitude negates. */
+const lonLat = (lon: number, lat: number) => [lon * MAP_SCALE, -lat * MAP_SCALE] as const
+
+/**
+ * Continents, as coarse outlines in degrees.
+ *
+ * Deliberately simplified — at this size the silhouette is the whole signal,
+ * and a faithful coastline would be a few thousand points nobody can resolve.
+ * Each is extruded a little proud of the plate so it casts and catches light.
+ */
+const CONTINENT_OUTLINES: [number, number][][] = [
+  // North America
+  [[-166, 62], [-128, 70], [-96, 72], [-62, 60], [-56, 46], [-76, 26], [-100, 18], [-108, 24], [-124, 34], [-140, 58]],
+  // South America
+  [[-80, 10], [-62, 8], [-36, -5], [-40, -24], [-56, -40], [-72, -54], [-76, -32], [-82, -6]],
+  // Africa
+  [[-17, 34], [10, 37], [34, 32], [44, 12], [52, 12], [42, -14], [32, -32], [18, -35], [12, -6], [-8, 5], [-16, 20]],
+  // Europe
+  [[-10, 36], [-4, 50], [12, 55], [28, 60], [42, 52], [30, 42], [16, 38], [2, 42]],
+  // Asia
+  [[32, 60], [62, 70], [104, 76], [142, 70], [170, 66], [144, 44], [122, 24], [104, 10], [82, 22], [62, 30], [46, 40], [36, 50]],
+  // Australia
+  [[114, -12], [140, -12], [151, -26], [146, -38], [120, -35], [112, -22]],
+  // Antarctica, as the polar strip it always is on this projection
+  [[-180, -66], [180, -66], [180, -84], [-180, -84]],
+]
+
+const CONTINENT_GEOMETRY = (() => {
+  const shapes = CONTINENT_OUTLINES.map((pts) => {
+    const shape = new THREE.Shape()
+    pts.forEach(([lon, lat], i) => {
+      const [x, z] = lonLat(lon, lat)
+      // Shape is authored in XY and rotated flat below, so map Z onto Y.
+      if (i === 0) shape.moveTo(x, z)
+      else shape.lineTo(x, z)
+    })
+    shape.closePath()
+    return shape
+  })
+  const geo = new THREE.ExtrudeGeometry(shapes, { depth: 0.22, bevelEnabled: false, curveSegments: 1 })
+  // Extruded along +Z in shape space; lay it flat so depth becomes height.
+  geo.rotateX(-Math.PI / 2)
+  return geo
+})()
+
+/** The graticule: meridians every 30 degrees, parallels every 30. */
+const MERIDIAN = new THREE.BoxGeometry(0.05, 0.06, MAP_D)
+const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.06, 0.05)
+const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
+const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
+
+/** Equator and prime meridian, picked out in brass. */
+const EQUATOR = new THREE.BoxGeometry(MAP_W, 0.08, 0.1)
+const PRIME = new THREE.BoxGeometry(0.1, 0.08, MAP_D)
+
+/** A clipped hedge frame around the plate, in place of the old concentric rings. */
+const HEDGE_LONG = new THREE.BoxGeometry(MAP_W + 2.2, 0.72, 0.62)
+const HEDGE_SHORT = new THREE.BoxGeometry(0.62, 0.72, MAP_D + 2.2)
+
 const CYPRESS = new THREE.ConeGeometry(0.72, 3.6, 80)
 const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 48)
+const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 128)
+const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
 
-const UP = new THREE.Vector3(0, 1, 0)
-const CONTINENTS = (
-  [
-    [0.4, 0.55, 0.7, 1.7, 1.2],
-    [-0.7, 0.2, 0.6, 1.4, 1.0],
-    [0.1, -0.75, 0.6, 1.3, 1.1],
-    [-0.5, -0.4, -0.75, 1.5, 0.9],
-    [0.75, -0.1, -0.6, 1.1, 0.8],
-    [-0.15, 0.85, -0.5, 1.0, 0.9],
-  ] as const
-).map(([x, y, z, sx, sz]) => {
-  const n = new THREE.Vector3(x, y, z).normalize()
-  const e = new THREE.Euler().setFromQuaternion(
-    new THREE.Quaternion().setFromUnitVectors(UP, n),
-  )
-  return {
-    position: n.clone().multiplyScalar(3.18).toArray() as [number, number, number],
-    rotation: [e.x, e.y, e.z] as [number, number, number],
-    scale: [sx, 0.14, sz] as [number, number, number],
-  }
-})
-
-// 2,688 triangles each, three of them, for low garden hedges.
-const HEDGE_RINGS = [4.8, 6.0, 7.0].map((r) => new THREE.TorusGeometry(r, 0.34, 32, 192))
-const SPOKES = Array.from({ length: 8 }, (_, i) => (i / 8) * Math.PI * 2)
+const MAP_LAND_MAT = std({ color: '#4f9d5e', roughness: 0.82 })
+const MAP_SEA_MAT = std({ color: '#2f6f9e', roughness: 0.5, metalness: 0.12 })
 
 export function GeographicalGarden({ d }: LandmarkProps) {
-  const globe = useRef<THREE.Group>(null!)
-  useFrame((_, dt) => {
-    globe.current.rotation.y += dt * 0.12
-  })
-
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
 
   return (
     <group>
-      <mesh geometry={PLINTH_BASE} position={[0, 0.35, 0]} material={mat.stone} />
-      <mesh geometry={PLINTH_TOP} position={[0, 1.55, 0]} material={mat.marble} />
+      {/* The plate: a stone kerb, the sea face inset into it. */}
+      <mesh geometry={MAP_PLATE} position={[0, 0.21, 0]} material={mat.stone} />
+      <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
 
-      <group position={[0, 6.1, 0]}>
-        <group ref={globe}>
-          {/*
-            Untagged on purpose. This sphere rotates about an axis through its
-            own centre, so its cast silhouette never changes — freezing its
-            shadow is exact, not an approximation. Tagging the whole group cost
-            a ~6-unit shadow ellipse on the parterre while the armillary rings
-            outside it kept casting, which read as a bug.
-          */}
-          <mesh geometry={GLOBE} material={GLOBE_MAT} />
-          {/*
-            The decals do change silhouette (they stand ~13% proud of the
-            sphere), so they are excluded — via a wrapping group, never a
-            userData prop on <Instances>: drei spreads caller props over its own
-            `userData: { instances, limit, frames }`, and R3F assigns plain
-            objects wholesale, so that would delete `instances` and make
-            PositionMesh.raycast throw on every pointer move.
-          */}
-          <group userData={{ noShadow: true }}>
-            <Instances geometry={LANDMASS} material={LANDMASS_MAT} limit={CONTINENTS.length}>
-              {CONTINENTS.map((c, i) => (
-                <Instance key={i} position={c.position} rotation={c.rotation} scale={c.scale} />
-              ))}
-            </Instances>
-          </group>
-        </group>
-        {/* Armillary rings stay fixed while the globe turns inside them. */}
-        <mesh geometry={RING} rotation={[Math.PI / 2, 0, 0]} material={mat.brass} />
-        <mesh geometry={RING} rotation={[Math.PI / 2, 0, Math.PI / 2]} scale={[0.99, 0.99, 1]} material={mat.brass} />
-        <mesh geometry={RING} rotation={[0, 0, 0.41]} material={ACCENT.geography} />
+      {/* Graticule, ruled across the sea face. */}
+      <Instances geometry={MERIDIAN} material={mat.marble} limit={MERIDIANS.length}>
+        {MERIDIANS.map((x, i) => (
+          <Instance key={i} position={[x, 0.5, 0]} />
+        ))}
+      </Instances>
+      <Instances geometry={PARALLEL} material={mat.marble} limit={PARALLELS.length}>
+        {PARALLELS.map((z, i) => (
+          <Instance key={i} position={[0, 0.5, z]} />
+        ))}
+      </Instances>
+      <mesh geometry={EQUATOR} position={[0, 0.52, 0]} material={mat.brass} />
+      <mesh geometry={PRIME} position={[0, 0.52, 0]} material={mat.brass} />
+
+      {/* Landmasses, standing proud of the water. */}
+      <mesh geometry={CONTINENT_GEOMETRY} position={[0, 0.51, 0]} material={MAP_LAND_MAT} castShadow />
+
+      {/* Hedge frame, squared off to match the projection. */}
+      <mesh geometry={HEDGE_LONG} position={[0, 0.36, -(MAP_D / 2 + 0.8)]} material={mat.hedge} />
+      <mesh geometry={HEDGE_LONG} position={[0, 0.36, MAP_D / 2 + 0.8]} material={mat.hedge} />
+      <mesh geometry={HEDGE_SHORT} position={[-(MAP_W / 2 + 0.8), 0.36, 0]} material={mat.hedge} />
+      <mesh geometry={HEDGE_SHORT} position={[MAP_W / 2 + 0.8, 0.36, 0]} material={mat.hedge} />
+
+      {/* A reading plinth at the map's near edge, where a globe used to stand.
+          Kept inside radius 8 so it stands on flat ground like the plate. */}
+      <group position={[0, 0, MAP_D / 2 + 2.3]}>
+        <mesh geometry={PLINTH_BASE} scale={[0.62, 0.8, 0.62]} position={[0, 0.28, 0]} material={mat.stone} />
+        <mesh geometry={PLINTH_TOP} scale={[0.62, 0.7, 0.62]} position={[0, 1.15, 0]} material={mat.marble} />
+        <mesh geometry={MAP_FACE} scale={[0.19, 1, 0.19]} rotation={[-0.5, 0, 0]} position={[0, 1.7, 0]} material={ACCENT.geography} />
       </group>
 
-      {HEDGE_RINGS.map((g, i) => (
-        <mesh
-          key={i}
-          geometry={g}
-          rotation={[Math.PI / 2, 0, 0]}
-          position={[0, 0.34, 0]}
-          material={mat.hedge}
-        />
+      {cypresses.map((c, i) => (
+        <group key={i} position={c.position} scale={c.scale}>
+          <mesh geometry={CYPRESS_TRUNK} position={[0, 0.35, 0]} material={mat.wood} />
+          <mesh geometry={CYPRESS} position={[0, 2.5, 0]} material={mat.leaf} />
+        </group>
       ))}
-      <Instances geometry={UNIT_BOX} material={mat.hedge} limit={SPOKES.length}>
-        {SPOKES.map((a, i) => (
-          <Instance
-            key={i}
-            scale={[2.2, 0.6, 0.4]}
-            position={[Math.cos(a) * 5.9, 0.3, Math.sin(a) * 5.9]}
-            rotation={[0, -a, 0]}
-          />
-        ))}
-      </Instances>
-
-      {/* The per-tree group is gone, so its scale has to be folded into the
-          children's offsets by hand — both sat on the group's Y axis. */}
-      <Instances geometry={CYPRESS_TRUNK} material={mat.wood} limit={cypresses.length}>
-        {cypresses.map((c, i) => (
-          <Instance
-            key={i}
-            position={[c.position[0], c.position[1] + 0.35 * c.scale, c.position[2]]}
-            scale={c.scale}
-          />
-        ))}
-      </Instances>
-      <Instances geometry={CYPRESS} material={mat.leaf} limit={cypresses.length}>
-        {cypresses.map((c, i) => (
-          <Instance
-            key={i}
-            position={[c.position[0], c.position[1] + 2.5 * c.scale, c.position[2]]}
-            scale={c.scale}
-          />
-        ))}
-      </Instances>
     </group>
   )
 }
@@ -443,6 +536,19 @@ const OBS_TOWER = new THREE.CylinderGeometry(3.0, 3.2, 5.0, 160)
 const OBS_BAND = new THREE.TorusGeometry(3.06, 0.24, 48, 208)
 const OBS_DOME = new THREE.SphereGeometry(3.1, 176, 88, 0, Math.PI * 2, 0, Math.PI / 2)
 const OBS_SLOT = new THREE.BoxGeometry(0.9, 3.3, 3.3)
+
+/*
+  Openings. A drum with a dome on it is a silo; the windows and the door are
+  what say "building" and, more usefully, what give it a readable size — with
+  nothing on the wall there is no cue for how tall five units is.
+*/
+const OBS_WINDOW = new THREE.BoxGeometry(0.44, 1.05, 0.3)
+const OBS_DOOR = new THREE.BoxGeometry(1.0, 1.9, 0.3)
+const OBS_WINDOWS = Array.from({ length: 9 }, (_, i) => {
+  // Left open at the front, where the door goes.
+  const a = 0.55 + (i / 9) * (Math.PI * 2 - 1.1)
+  return { x: Math.cos(a) * 3.02, z: Math.sin(a) * 3.02, a }
+})
 const TELESCOPE = new THREE.CylinderGeometry(0.34, 0.46, 4.2, 72)
 
 const NUCLEUS = new THREE.SphereGeometry(0.85, 112, 80)
@@ -450,8 +556,48 @@ const NUCLEUS = new THREE.SphereGeometry(0.85, 112, 80)
 const ORBITAL = new THREE.TorusGeometry(2.5, 0.1, 32, 256)
 const ELECTRON = new THREE.SphereGeometry(0.24, 64, 44)
 
-const LH_TOWER = new THREE.CylinderGeometry(0.95, 1.7, 7.2, 112)
-const LH_GALLERY = new THREE.CylinderGeometry(1.35, 1.35, 0.3, 112)
+/**
+ * The tower, turned as one profile.
+ *
+ * A truncated cone is the wrong shape for a lighthouse: real ones batter — the
+ * wall curves in, steeply near the base and barely at all near the top — and
+ * they finish in a corbelled cornice that carries the gallery out past the
+ * shaft. Both come free from a lathe, and both are silhouette, which is all you
+ * can see of a tower against the sky.
+ */
+const LH_TOWER = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+
+  at(0, 0)
+  at(1.85, 0)
+  at(1.82, 0.45)
+  // Battered wall: cosine easing gives the concave sweep, fast low, slow high.
+  for (let i = 1; i <= 14; i++) {
+    const t = i / 14
+    at(1.82 - 0.86 * (1 - Math.cos((t * Math.PI) / 2)), 0.45 + t * 6.15)
+  }
+  at(0.97, 6.75)
+  at(1.06, 6.85)   // corbel
+  at(1.44, 7.15)
+  at(1.44, 7.34)   // gallery deck, carried by the cornice
+  at(1.30, 7.40)
+  at(0, 7.40)
+
+  return new THREE.LatheGeometry(p, 96)
+})()
+
+/** Balusters around the gallery, and the rail they carry. */
+const LH_RAIL_POST = new THREE.CylinderGeometry(0.045, 0.045, 0.62, 10)
+const LH_RAIL = new THREE.TorusGeometry(1.3, 0.045, 12, 72)
+const LH_RAIL_POSTS = Array.from({ length: 16 }, (_, i) => {
+  const a = (i / 16) * Math.PI * 2
+  return [Math.cos(a) * 1.3, Math.sin(a) * 1.3] as const
+})
+
+/** A door at the foot, and slit windows up the shaft. */
+const LH_DOOR = new THREE.BoxGeometry(0.62, 1.15, 0.14)
+const LH_WINDOW = new THREE.BoxGeometry(0.26, 0.5, 0.14)
 const LH_LANTERN = new THREE.CylinderGeometry(1.0, 1.0, 1.4, 112)
 const LH_ROOF = new THREE.ConeGeometry(1.35, 1.5, 112)
 const LH_LAMP = new THREE.SphereGeometry(0.5, 80, 56)
@@ -499,12 +645,29 @@ function Lighthouse() {
   return (
     <group>
       <mesh geometry={PLINTH_BASE} scale={[0.8, 0.6, 0.8]} position={[0, 0.2, 0]} material={mat.stone} />
-      <mesh geometry={LH_TOWER} position={[0, 4.0, 0]} material={mat.marble} />
-      <mesh geometry={LH_GALLERY} position={[0, 7.75, 0]} material={mat.dark} />
-      <mesh geometry={LH_LANTERN} position={[0, 8.6, 0]} material={mat.glass} />
-      <mesh geometry={LH_LAMP} position={[0, 8.6, 0]} material={LAMP_MAT} />
-      <mesh geometry={LH_ROOF} position={[0, 10.05, 0]} material={mat.ember} />
-      <pointLight ref={lamp} position={[0, 8.6, 0]} distance={38} decay={2} color="#ffdc9a" intensity={18} />
+
+      {/* The lathe carries its own base, cornice and gallery deck, so the tower
+          is one mesh from the ground to the lantern floor. */}
+      <mesh geometry={LH_TOWER} position={[0, 0.4, 0]} material={mat.marble} />
+
+      {/* Openings. A tower with no way in and nothing to see out of is a
+          bollard; these are what give the shaft its height. */}
+      <mesh geometry={LH_DOOR} position={[0, 1.0, 1.72]} material={mat.dark} />
+      <mesh geometry={LH_WINDOW} position={[0, 3.1, 1.42]} material={mat.glass} />
+      <mesh geometry={LH_WINDOW} position={[0, 5.0, 1.2]} material={mat.glass} />
+      <mesh geometry={LH_WINDOW} position={[1.15, 4.1, 0]} rotation={[0, Math.PI / 2, 0]} material={mat.glass} />
+
+      <Instances geometry={LH_RAIL_POST} material={mat.dark} limit={LH_RAIL_POSTS.length}>
+        {LH_RAIL_POSTS.map(([x, z], i) => (
+          <Instance key={i} position={[x, 8.06, z]} />
+        ))}
+      </Instances>
+      <mesh geometry={LH_RAIL} rotation={[Math.PI / 2, 0, 0]} position={[0, 8.36, 0]} material={mat.dark} />
+
+      <mesh geometry={LH_LANTERN} position={[0, 8.5, 0]} material={mat.glass} />
+      <mesh geometry={LH_LAMP} position={[0, 8.5, 0]} material={LAMP_MAT} />
+      <mesh geometry={LH_ROOF} position={[0, 9.95, 0]} material={mat.ember} />
+      <pointLight ref={lamp} position={[0, 8.5, 0]} distance={38} decay={2} color="#ffdc9a" intensity={18} />
     </group>
   )
 }
@@ -566,6 +729,13 @@ export function ScientificShores({ d }: LandmarkProps) {
         <mesh geometry={OBS_BAND} rotation={[Math.PI / 2, 0, 0]} position={[0, 6.0, 0]} material={mat.steel} />
         <mesh geometry={OBS_DOME} position={[0, 6.15, 0]} material={ACCENT.science} />
         <mesh geometry={OBS_SLOT} position={[0, 7.6, 1.5]} material={mat.dark} />
+
+        <Instances geometry={OBS_WINDOW} material={mat.glass} limit={OBS_WINDOWS.length}>
+          {OBS_WINDOWS.map((w, i) => (
+            <Instance key={i} position={[w.x, 4.1, w.z]} rotation={[0, -w.a + Math.PI / 2, 0]} />
+          ))}
+        </Instances>
+        <mesh geometry={OBS_DOOR} position={[3.05, 1.95, 0]} rotation={[0, Math.PI / 2, 0]} material={mat.dark} />
         <mesh geometry={TELESCOPE} position={[0, 8.4, 2.1]} rotation={[Math.PI / 3.1, 0, 0]} material={mat.steel} />
       </group>
 
@@ -617,13 +787,59 @@ const SEAT_TIERS = [0, 1, 2, 3].map((i) => {
   }
 })
 const STAGE = new THREE.CylinderGeometry(2.2, 2.2, 0.32, 160)
+
+/*
+  The outer facade, and the aisles that break the seating up.
+
+  Four concentric tiers alone read as a contour map. Two things turn them into a
+  theatre: a wall around the back of the bowl, which is what the structure looks
+  like from outside and from every camera that is not directly overhead, and
+  radial stairs cutting through the tiers, which is how anyone would actually
+  reach a seat.
+
+  Both are built over the same 0..PI sweep the tiers use, so they stay aligned
+  with the seating whichever way the group is turned.
+*/
+const AMPHI_WALL = new THREE.CylinderGeometry(6.0, 6.15, 3.1, 96, 1, true, 0, Math.PI)
+const AMPHI_CORNICE = new THREE.CylinderGeometry(6.25, 6.25, 0.22, 96, 1, true, 0, Math.PI)
+const AMPHI_STEP = new THREE.BoxGeometry(0.62, 0.72, 0.9)
+const AMPHI_AISLES = [Math.PI * 0.28, Math.PI * 0.5, Math.PI * 0.72]
 // The single most tessellated object in the scene: 256x40x2 = 20,480 triangles
 // for a sculpture about three units across. 128x12 gives 3,072.
 const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 512, 64, 2, 3)
 const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 40)
 const CANVAS = new THREE.BoxGeometry(2.4, 1.8, 0.12)
 
-const TRUNK = new THREE.CylinderGeometry(0.2, 0.34, 2.6, 56)
+/*
+  A tree, rather than a lollipop.
+
+  Trunk plus one sphere is the shape a child draws, and subdividing the sphere
+  only makes a rounder ball. Two things fix it cheaply: a trunk that flares into
+  a root buttress at the base (a lathe, so the flare is a curve rather than a
+  cone), and a crown built from three overlapping lobes at different heights and
+  offsets, which gives an irregular silhouette and lets light break it up.
+
+  Both stay instanced, so 22 trees are two draw calls rather than 88.
+*/
+const TRUNK = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, 0)
+  at(0.46, 0)      // root flare
+  at(0.34, 0.28)
+  at(0.27, 0.7)
+  at(0.23, 1.5)
+  at(0.19, 2.6)    // where the crown takes over
+  at(0, 2.6)
+  return new THREE.LatheGeometry(p, 20)
+})()
+
+/** Offsets of the three crown lobes, in trunk-relative units. */
+const CROWN_LOBES = [
+  { offset: [0, 0.95, 0] as const, scale: 1.0 },
+  { offset: [0.62, 0.35, -0.3] as const, scale: 0.72 },
+  { offset: [-0.5, 0.5, 0.45] as const, scale: 0.66 },
+]
 // x22 instances in the grove, so this one multiplies: 816 triangles each was
 // 17,952 for the canopies alone. 16x12 brings that to 7,392 — a 59% cut that
 // still holds a round silhouette at the distance a district view parks at.
@@ -649,6 +865,27 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
           </group>
         ))}
         <mesh geometry={STAGE} position={[0, 0.16, 0]} material={mat.marble} />
+
+        {/* Facade. Open-ended cylinders, so both faces are drawn. */}
+        <mesh geometry={AMPHI_WALL} position={[0, 1.55, 0]} material={mat.stoneBoth} />
+        <mesh geometry={AMPHI_CORNICE} position={[0, 3.2, 0]} material={mat.stoneBoth} />
+
+        {/* Stairs through the tiers. The ring maps theta 0..PI onto the -Z half
+            once the treads are laid flat, so the aisles follow the same sign. */}
+        <Instances geometry={AMPHI_STEP} material={mat.stone} limit={AMPHI_AISLES.length * SEAT_TIERS.length}>
+          {AMPHI_AISLES.flatMap((a, ai) =>
+            SEAT_TIERS.map((t, i) => {
+              const r = 2.4 + i * 0.85 + 0.42
+              return (
+                <Instance
+                  key={`${ai}-${i}`}
+                  position={[Math.cos(a) * r, t.y - 0.36, -Math.sin(a) * r]}
+                  rotation={[0, a, 0]}
+                />
+              )
+            }),
+          )}
+        </Instances>
       </group>
 
       <group position={[4.6, 0, -3.2]}>
@@ -665,20 +902,36 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
         <mesh geometry={CANVAS} scale={[0.82, 0.72, 1]} position={[0, 2.4, 0.18]} material={ACCENT.art} />
       </group>
 
+      {/* The lathe stands on the ground rather than being centred on it, so the
+          root flare meets the terrain instead of floating half-buried. */}
       <Instances geometry={TRUNK} material={mat.wood} limit={32}>
         {grove.map((t, i) => (
-          <Instance key={i} position={[t.position[0], t.position[1] + 1.3 * t.scale, t.position[2]]} scale={t.scale} />
+          <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>
-      <Instances geometry={CANOPY} material={mat.leaf} limit={32}>
-        {grove.map((t, i) => (
-          <Instance
-            key={i}
-            position={[t.position[0], t.position[1] + 3.2 * t.scale, t.position[2]]}
-            rotation={[0, t.rotation, 0]}
-            scale={t.scale * (0.85 + (i % 3) * 0.12)}
-          />
-        ))}
+      <Instances geometry={CANOPY} material={mat.leaf} limit={32 * CROWN_LOBES.length}>
+        {grove.flatMap((t, i) =>
+          CROWN_LOBES.map((lobe, k) => {
+            // The lobe offsets are authored on an un-rotated tree, so the tree's
+            // own rotation has to carry them round — otherwise every crown in
+            // the grove leans the same way.
+            const cos = Math.cos(t.rotation)
+            const sin = Math.sin(t.rotation)
+            const [ox, oy, oz] = lobe.offset
+            return (
+              <Instance
+                key={`${i}-${k}`}
+                position={[
+                  t.position[0] + (ox * cos + oz * sin) * t.scale,
+                  t.position[1] + (2.6 + oy) * t.scale,
+                  t.position[2] + (-ox * sin + oz * cos) * t.scale,
+                ]}
+                rotation={[0, t.rotation + k * 1.1, 0]}
+                scale={t.scale * lobe.scale * (0.85 + (i % 3) * 0.12)}
+              />
+            )
+          }),
+        )}
       </Instances>
     </group>
   )
@@ -688,9 +941,25 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
 // Anthropologic Alps — stone circle, summit cairn, a span between two peaks
 // ===========================================================================
 
-const STANDING_STONE = new THREE.BoxGeometry(1.5, 3.0, 0.95)
-const LINTEL = new THREE.BoxGeometry(2.2, 0.55, 1.0)
-const CAIRN_ROCK = new THREE.IcosahedronGeometry(1, 5)
+/*
+  Menhirs, not blocks.
+
+  Eight identical boxes read as eight identical boxes however finely they are
+  subdivided. These start as coarse tapered pillars — six sides, so the facets
+  are the hewn faces — and are then roughened, which breaks the remaining
+  regularity. Because roughen() is deterministic and applied at module scope,
+  every stone still comes out the same on every load; the variation between them
+  comes from per-instance scale and tilt.
+*/
+const STANDING_STONE = roughen(new THREE.CylinderGeometry(0.62, 0.84, 3.0, 6, 3), 0.17)
+const LINTEL = roughen(new THREE.BoxGeometry(2.2, 0.55, 1.0, 3, 2, 2), 0.09)
+/*
+  A boulder, not a ball. Detail 5 made these perfectly spherical — the extra
+  subdivision was working directly against what a stacked cairn should look
+  like. Detail 2 keeps facets big enough to read as broken rock, and roughen()
+  gives each face a different plane.
+*/
+const CAIRN_ROCK = roughen(new THREE.IcosahedronGeometry(1, 2), 0.22)
 const FLAGPOLE = new THREE.CylinderGeometry(0.07, 0.09, 4.4, 40)
 const BANNER = new THREE.BoxGeometry(1.9, 1.1, 0.06)
 
@@ -700,20 +969,53 @@ const HENGE = Array.from({ length: 8 }, (_, i) => {
 })
 const CAIRN_STACK = [1.0, 0.82, 0.64, 0.48, 0.34]
 
+/*
+  A chalet, rather than a box with a pyramid on it.
+
+  The old form was three primitives and read as exactly that at any distance.
+  What makes a building legible is not smoothness but the parts everyone
+  expects: something it stands on, a pitched roof that overhangs rather than
+  capping flush, a balcony, and openings to give the walls scale. Each part is
+  its own <Instances> block, so seven chalets with nine parts each still cost
+  nine draw calls rather than sixty-three.
+*/
+const HOUSE_BASE = new THREE.BoxGeometry(2.15, 0.35, 2.55)
 const HOUSE_BODY = new THREE.BoxGeometry(1.9, 1.5, 2.3)
-const HOUSE_ROOF = new THREE.ConeGeometry(1.75, 1.2, 4)
-const CHIMNEY = new THREE.BoxGeometry(0.32, 0.9, 0.32)
+
+/**
+ * A gable, extruded — an alpine roof runs to two pitched faces along a ridge,
+ * not to a point. A 4-sided cone gave every house a pyramid, which is the one
+ * roof shape these buildings never have.
+ */
+const HOUSE_ROOF = (() => {
+  const gable = new THREE.Shape()
+  gable.moveTo(-1.42, 0)
+  gable.lineTo(0, 1.05)
+  gable.lineTo(1.42, 0)
+  gable.closePath()
+  const geo = new THREE.ExtrudeGeometry(gable, { depth: 2.9, bevelEnabled: false, curveSegments: 1 })
+  // Extrusion runs along +Z from the origin; centre it on the body.
+  geo.translate(0, 0, -1.45)
+  return geo
+})()
+
+const HOUSE_BALCONY = new THREE.BoxGeometry(2.1, 0.09, 0.6)
+const HOUSE_RAIL = new THREE.BoxGeometry(2.1, 0.07, 0.07)
+const HOUSE_POST = new THREE.BoxGeometry(0.08, 0.42, 0.08)
+const HOUSE_DOOR = new THREE.BoxGeometry(0.5, 0.82, 0.06)
+const HOUSE_WINDOW = new THREE.BoxGeometry(0.38, 0.34, 0.05)
+const CHIMNEY = new THREE.BoxGeometry(0.34, 1.0, 0.34)
 
 /** A handful of chalets on the lower slopes. */
 function Village({ d }: { d: District }) {
   const houses = useMemo(() => scatter(d, 7, 6.5, 10.5, 0x71ce), [d])
 
   /*
-    Instancing flattens the per-house group away, so anything the group used to
-    carry has to be applied per instance. Body and roof sat on its Y axis and
-    only need the scale folded in, but the chimney is offset in X and Z, so the
-    group's Y rotation genuinely moved it — that rotation is reapplied by hand
-    here. three's Y rotation maps (x, z) to (x cos + z sin, -x sin + z cos).
+    Instancing flattens the per-house group away, so every part has to carry the
+    transform that group used to apply. Parts on the building's own Y axis only
+    need the scale folded in; anything offset in X or Z is genuinely moved by
+    the house's rotation, so that rotation is reapplied here. three's Y rotation
+    maps (x, z) to (x cos + z sin, -x sin + z cos).
   */
   const chalets = useMemo(
     () =>
@@ -722,36 +1024,84 @@ function Village({ d }: { d: District }) {
         const [hx, hy, hz] = h.position
         const cos = Math.cos(h.rotation)
         const sin = Math.sin(h.rotation)
+
+        /** Local (x, y, z) on the un-rotated house -> world. */
+        const at = (lx: number, ly: number, lz: number): [number, number, number] => [
+          hx + (lx * cos + lz * sin) * scale,
+          hy + ly * scale,
+          hz + (-lx * sin + lz * cos) * scale,
+        ]
+
+        // The front wall faces +Z before rotation; 1.15 is its outer face.
+        const FRONT = 1.16
         return {
           rotation: h.rotation,
           scale,
-          body: [hx, hy + 0.75 * scale, hz] as [number, number, number],
-          roof: [hx, hy + 2.1 * scale, hz] as [number, number, number],
-          chimney: [
-            hx + (0.55 * cos + 0.6 * sin) * scale,
-            hy + 2.3 * scale,
-            hz + (-0.55 * sin + 0.6 * cos) * scale,
-          ] as [number, number, number],
+          base: at(0, 0.175, 0),
+          body: at(0, 1.1, 0),
+          roof: at(0, 1.85, 0),
+          balcony: at(0, 1.12, FRONT + 0.28),
+          rail: at(0, 1.52, FRONT + 0.55),
+          posts: [at(-1.0, 1.32, FRONT + 0.55), at(1.0, 1.32, FRONT + 0.55)],
+          door: at(0, 0.76, FRONT),
+          windows: [at(-0.58, 1.44, FRONT), at(0.58, 1.44, FRONT)],
+          chimney: at(0.62, 2.35, -0.55),
         }
       }),
     [houses],
   )
 
+  const rot = (c: (typeof chalets)[number]) => [0, c.rotation, 0] as [number, number, number]
+
   return (
     <group>
+      <Instances geometry={HOUSE_BASE} material={mat.stone} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.base} rotation={rot(c)} scale={c.scale} />
+        ))}
+      </Instances>
       <Instances geometry={HOUSE_BODY} material={mat.wood} limit={chalets.length}>
         {chalets.map((c, i) => (
-          <Instance key={i} position={c.body} rotation={[0, c.rotation, 0]} scale={c.scale} />
+          <Instance key={i} position={c.body} rotation={rot(c)} scale={c.scale} />
         ))}
       </Instances>
       <Instances geometry={HOUSE_ROOF} material={mat.snow} limit={chalets.length}>
         {chalets.map((c, i) => (
-          <Instance key={i} position={c.roof} rotation={[0, c.rotation + Math.PI / 4, 0]} scale={c.scale} />
+          <Instance key={i} position={c.roof} rotation={rot(c)} scale={c.scale} />
         ))}
+      </Instances>
+      <Instances geometry={HOUSE_BALCONY} material={mat.wood} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.balcony} rotation={rot(c)} scale={c.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={HOUSE_RAIL} material={mat.wood} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.rail} rotation={rot(c)} scale={c.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={HOUSE_POST} material={mat.wood} limit={chalets.length * 2}>
+        {chalets.flatMap((c, i) =>
+          c.posts.map((p, k) => (
+            <Instance key={`${i}-${k}`} position={p} rotation={rot(c)} scale={c.scale} />
+          )),
+        )}
+      </Instances>
+      <Instances geometry={HOUSE_DOOR} material={mat.darkStone} limit={chalets.length}>
+        {chalets.map((c, i) => (
+          <Instance key={i} position={c.door} rotation={rot(c)} scale={c.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={HOUSE_WINDOW} material={mat.glass} limit={chalets.length * 2}>
+        {chalets.flatMap((c, i) =>
+          c.windows.map((w, k) => (
+            <Instance key={`${i}-${k}`} position={w} rotation={rot(c)} scale={c.scale} />
+          )),
+        )}
       </Instances>
       <Instances geometry={CHIMNEY} material={mat.darkStone} limit={chalets.length}>
         {chalets.map((c, i) => (
-          <Instance key={i} position={c.chimney} rotation={[0, c.rotation, 0]} scale={c.scale} />
+          <Instance key={i} position={c.chimney} rotation={rot(c)} scale={c.scale} />
         ))}
       </Instances>
     </group>
@@ -792,8 +1142,11 @@ export function AnthropologicAlps({ d }: LandmarkProps) {
             <Instance
               key={i}
               position={[s.x, s.y + 1.35, s.z]}
-              rotation={[0, -s.a, 0]}
-              scale={[1, 0.8 + (i % 3) * 0.18, 1]}
+              // A slight lean, different per stone. Nothing that has stood on a
+              // mountainside for four thousand years is still plumb, and eight
+              // perfectly upright pillars are the tell.
+              rotation={[Math.sin(i * 2.3) * 0.05, -s.a, Math.cos(i * 1.7) * 0.06]}
+              scale={[0.92 + (i % 4) * 0.09, 0.8 + (i % 3) * 0.18, 0.92 + (i % 3) * 0.11]}
             />
           ))}
         </Instances>

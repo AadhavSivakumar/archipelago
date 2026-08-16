@@ -11,6 +11,7 @@ import * as THREE from 'three'
 import { EASE, gsap, prefersReducedMotion, useGSAP } from '../animations/gsap'
 import { useIdle } from '../hooks/useIdle'
 import { Ambient } from './Ambient'
+import { Monument } from './Monument'
 import { CameraRig } from './CameraRig'
 import { frameScale } from './framing'
 import { Districts } from './DistrictLayer'
@@ -223,6 +224,10 @@ export function Scene({ focus, onFocus }: Props) {
       */}
       <Suspense fallback={null}>
         <Island occluderRef={occluder} deepLinked={deepLinked} />
+        {/* Inside the boundary with the land it stands on — it reads the height
+            field for its own footing, and appearing before the island does
+            would leave it floating. */}
+        <Monument />
         <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
       </Suspense>
 

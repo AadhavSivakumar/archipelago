@@ -7,6 +7,7 @@ import { DISTRICTS, districtCentre, type District, type DistrictId } from './dis
 import { sampleHeight } from './terrain'
 import { weather, type WeatherOptions } from './surface'
 import { water } from '../shaders/water'
+import { LAND_RINGS } from './worldOutline'
 
 // ---------------------------------------------------------------------------
 // Shared materials. One instance each, reused by every landmark — a fresh
@@ -559,45 +560,40 @@ const MAP_D = 180 * MAP_SCALE
 const MAP_PLATE = new THREE.BoxGeometry(MAP_W + 1.1, 0.42, MAP_D + 1.1)
 const MAP_FACE = new THREE.BoxGeometry(MAP_W, 0.1, MAP_D)
 
-/** Longitude/latitude to plate-local (x, z). North is -Z, so latitude negates. */
-const lonLat = (lon: number, lat: number) => [lon * MAP_SCALE, -lat * MAP_SCALE] as const
-
 /**
- * Continents, as coarse outlines in degrees.
+ * The continents, from real coastlines.
  *
- * Deliberately simplified — at this size the silhouette is the whole signal,
- * and a faithful coastline would be a few thousand points nobody can resolve.
- * Each is extruded a little proud of the plate so it casts and catches light.
+ * These used to be seven hand-typed outlines of eight to twelve points each —
+ * enough to say "this is a world map" from across the room and not enough to
+ * survive being looked at, which is exactly what the plan view now invites. A
+ * ten-point Africa is a blob. The data in worldOutline.ts is Natural Earth's
+ * 110m land, simplified to the resolution this plate can actually show.
+ *
+ * On the double negation that had the map upside down: a THREE.Shape is
+ * authored in XY and this one is laid flat with rotateX(-90), which sends shape
+ * Y to world -Z. North is -Z, so shape Y has to be latitude ITSELF, not its
+ * negation. The old lonLat() helper negated it, the rotation negated it again,
+ * and the two cancelled — every landmass in the southern hemisphere drew in the
+ * northern one, with Antarctica along the top edge. Neither step was wrong on
+ * its own, which is why it lasted: each carried a correct comment about what it
+ * did, and nobody composed them. The plate and its graticule are symmetric
+ * about both axes, so nothing else in the district contradicted it, and from
+ * the old oblique view the continents were too coarse to recognise.
  */
-const CONTINENT_OUTLINES: [number, number][][] = [
-  // North America
-  [[-166, 62], [-128, 70], [-96, 72], [-62, 60], [-56, 46], [-76, 26], [-100, 18], [-108, 24], [-124, 34], [-140, 58]],
-  // South America
-  [[-80, 10], [-62, 8], [-36, -5], [-40, -24], [-56, -40], [-72, -54], [-76, -32], [-82, -6]],
-  // Africa
-  [[-17, 34], [10, 37], [34, 32], [44, 12], [52, 12], [42, -14], [32, -32], [18, -35], [12, -6], [-8, 5], [-16, 20]],
-  // Europe
-  [[-10, 36], [-4, 50], [12, 55], [28, 60], [42, 52], [30, 42], [16, 38], [2, 42]],
-  // Asia
-  [[32, 60], [62, 70], [104, 76], [142, 70], [170, 66], [144, 44], [122, 24], [104, 10], [82, 22], [62, 30], [46, 40], [36, 50]],
-  // Australia
-  [[114, -12], [140, -12], [151, -26], [146, -38], [120, -35], [112, -22]],
-  // Antarctica, as the polar strip it always is on this projection
-  [[-180, -66], [180, -66], [180, -84], [-180, -84]],
-]
-
 const CONTINENT_GEOMETRY = (() => {
-  const shapes = CONTINENT_OUTLINES.map((pts) => {
+  const shapes = LAND_RINGS.map((ring) => {
     const shape = new THREE.Shape()
-    pts.forEach(([lon, lat], i) => {
-      const [x, z] = lonLat(lon, lat)
-      // Shape is authored in XY and rotated flat below, so map Z onto Y.
-      if (i === 0) shape.moveTo(x, z)
-      else shape.lineTo(x, z)
-    })
+    for (let i = 0; i < ring.length; i += 2) {
+      const x = (ring[i] / 10) * MAP_SCALE
+      // Latitude, un-negated. See the note above.
+      const y = (ring[i + 1] / 10) * MAP_SCALE
+      if (i === 0) shape.moveTo(x, y)
+      else shape.lineTo(x, y)
+    }
     shape.closePath()
     return shape
   })
+
   const geo = new THREE.ExtrudeGeometry(shapes, { depth: 0.22, bevelEnabled: false, curveSegments: 1 })
   // Extruded along +Z in shape space; lay it flat so depth becomes height.
   geo.rotateX(-Math.PI / 2)
@@ -613,8 +609,19 @@ const CONTINENT_GEOMETRY = (() => {
   A graticule is a reference, and a reference should be the quietest mark on a
   drawing.
 */
-const MERIDIAN = new THREE.BoxGeometry(0.035, 0.06, MAP_D)
-const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.06, 0.035)
+const MERIDIAN = new THREE.BoxGeometry(0.026, 0.05, MAP_D)
+const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.05, 0.026)
+
+/*
+  Its own material, darker than any of the shared stones.
+
+  Thinning the bars helped but did not settle it: against a blue sea any pale
+  grey is still the highest-contrast thing on the plate, and with real
+  coastlines in place the grid was competing with the subject rather than
+  supporting it. A graticule wants to be read when looked for and ignored
+  otherwise, which means it has to be darker than the water, not lighter.
+*/
+const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7 }, DRESSED)
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
 const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
 
@@ -665,7 +672,18 @@ const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
 */
 const MAP_LAND_MAT = std(
   { color: '#4d8a56', roughness: 0.92 },
-  { grain: 5, mottle: 0.5, bump: 1.1, rough: 0.18 },
+  /*
+    Softened a long way from mottle 0.5 / bump 1.1.
+
+    Against seven hand-typed blobs the heavy grain was the only thing giving the
+    land any character, so it kept being pushed up. Against real coastlines it
+    has nothing to prove and a great deal to spoil: at ten pixels per noise
+    feature, a strong per-fragment variation IS what reads as the map being
+    pixelated, and it lands hardest on exactly the thin coastal detail the new
+    outlines were added for. Turned down until it reads as the surface of a lawn
+    rather than as a texture applied to one.
+  */
+  { grain: 4, mottle: 0.16, bump: 0.35, rough: 0.12 },
 )
 
 /*
@@ -693,12 +711,12 @@ export function GeographicalGarden({ d }: LandmarkProps) {
       <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
 
       {/* Graticule, ruled across the sea face. */}
-      <Instances geometry={MERIDIAN} material={mat.stone} limit={MERIDIANS.length}>
+      <Instances geometry={MERIDIAN} material={GRATICULE_MAT} limit={MERIDIANS.length}>
         {MERIDIANS.map((x, i) => (
           <Instance key={i} position={[x, 0.5, 0]} />
         ))}
       </Instances>
-      <Instances geometry={PARALLEL} material={mat.stone} limit={PARALLELS.length}>
+      <Instances geometry={PARALLEL} material={GRATICULE_MAT} limit={PARALLELS.length}>
         {PARALLELS.map((z, i) => (
           <Instance key={i} position={[0, 0.5, z]} />
         ))}

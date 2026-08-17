@@ -35,6 +35,22 @@ export type District = {
    * runs its jetty, so it has to point at water rather than at a neighbour.
    */
   seaward: number
+  /**
+   * How the camera frames this district.
+   *
+   * 'shore' — the default — parks off the coast on the seaward bearing and
+   * looks back at the land, which is the right read for a building on an
+   * island: you see its elevation against the sky.
+   *
+   * 'plan' looks almost straight down instead. It exists for the Geographical
+   * Garden, whose subject is an equirectangular world map laid flat — an
+   * oblique view of a map is a view of a slab, and the projection only becomes
+   * legible from directly above it. The one thing it must not be is exactly
+   * vertical: with the view direction parallel to the camera's up vector the
+   * look-at basis is degenerate and OrbitControls has no defined azimuth, so it
+   * keeps a small tilt.
+   */
+  framing?: 'shore' | 'plan'
   /** Height of the flattened plateau the landmark stands on. */
   pad: number
   padRadius: number
@@ -100,6 +116,7 @@ export const DISTRICTS: District[] = [
     x: 44,
     z: 26,
     seaward: 0.62,
+    framing: 'plan',
     pad: 4.6,
     padRadius: 7.5,
     relief: 1.8,
@@ -181,6 +198,24 @@ export function districtCentre(d: District): [number, number] {
  * from the world origin would put the camera inside a neighbour.
  */
 export function districtView(d: District, scale = 1) {
+  if (d.framing === 'plan') {
+    /*
+      Overhead, tilted 15 degrees off vertical — see the `framing` note above
+      for why it cannot be 0.
+
+      27 units out. The plate is 14.3 by 7.2 including its kerb, so at the base
+      42-degree vertical fov this leaves the map filling rather more than half
+      the frame's width, which is the margin the fixed side panel needs: the
+      panel covers the left quarter of the viewport and a tighter framing would
+      put the Atlantic behind it. Scaled like every other view, so a narrow
+      viewport pulls back rather than cropping the Pacific.
+    */
+    return {
+      position: { x: d.x, y: d.pad + 26 * scale, z: d.z + 7 * scale },
+      target: { x: d.x, y: d.pad, z: d.z },
+    }
+  }
+
   const ox = Math.cos(d.seaward)
   const oz = Math.sin(d.seaward)
   return {

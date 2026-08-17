@@ -240,7 +240,7 @@ export function Scene({ focus, onFocus }: Props) {
         empty while something is reading it.
       */}
       <Suspense fallback={null}>
-        <Island occluderRef={occluder} deepLinked={deepLinked} />
+        <Island occluderRef={occluder} deepLinked={deepLinked} onPick={onFocus} />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does
             would leave it floating. */}

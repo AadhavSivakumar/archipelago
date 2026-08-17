@@ -111,8 +111,29 @@ uniform float uRough;
  */
 const BUMP_GLSL = /* glsl */ `
 {
-  vec3 dpdx = dFdx(vSurfPos);
-  vec3 dpdy = dFdy(vSurfPos);
+  /*
+    The surface derivatives are taken in VIEW space, not world space.
+
+    The normal variable here is vNormal, which three computes as
+    normalMatrix * objectNormal
+    — a view-space vector. Mikkelsen's construction crosses the surface
+    derivatives against that normal, so all three have to live in the same
+    basis; feeding it world-space derivatives builds the tangent frame in one
+    space and projects it in another. It still produces texture, which is why it
+    survived a first look, but the perturbation points the wrong way by an
+    amount that depends on where the camera happens to be standing — so a
+    surface would visibly change its relief as you orbited it.
+
+    -vViewPosition is the view-space position of this fragment, declared
+    unconditionally by meshphysical. Only the derivatives move; the noise is
+    still SAMPLED in world space, which is what keeps the grain anchored to the
+    object rather than swimming with the camera. Lengths are unaffected either
+    way, since the world-to-view transform is rigid, so the footprint fade below
+    stays in world units.
+  */
+  vec3 sfViewPos = -vViewPosition;
+  vec3 dpdx = dFdx(sfViewPos);
+  vec3 dpdy = dFdy(sfViewPos);
   float dhdx = dFdx(sfGrain);
   float dhdy = dFdy(sfGrain);
 
@@ -132,6 +153,7 @@ const BUMP_GLSL = /* glsl */ `
     density, with no constant to retune when the camera changes.
   */
   float sfPx = max(length(dpdx), length(dpdy));
+
   float sfFade = clamp(1.0 - sfPx * uGrain * 3.0, 0.0, 1.0);
   diffuseColor.rgb = mix(sfBase, diffuseColor.rgb, sfFade);
 

@@ -1,3 +1,5 @@
+import * as THREE from 'three'
+
 /**
  * The sea surface, as one definition.
  *
@@ -135,8 +137,24 @@ export const WAVE_CHOP_GLSL = /* glsl */ `
  */
 export const WAVE_CHOP_CHUNK = /* glsl */ `
 {
-  vec2 p = vWaterPos;
-  float px = max(length(dFdx(vWaterPos)), length(dFdy(vWaterPos)));
+  /*
+    uChopScale compresses the whole ripple field into a smaller patch of world,
+    so the same wave set can dress both the open ocean and the pool inlaid in
+    the Geographical Garden's map — which is twelve units across, where a swell
+    authored for a 1600-unit plane would not complete a single crest.
+
+    The gradient is deliberately NOT rescaled with it. Multiplying space by s
+    shortens every wavelength by s while leaving the amplitudes alone, which
+    would make the small water proportionally s times steeper and read as
+    corrugated iron. Leaving the gradient in sample space instead keeps the
+    apparent slope of the ripple the same at every scale, which is what makes it
+    read as water rather than as a scale model of water.
+
+    px is scaled, because that one genuinely is about the sampling rate: a pixel
+    covers s times as much of the wave when the wave is s times finer.
+  */
+  vec2 p = vWaterPos * uChopScale;
+  float px = max(length(dFdx(vWaterPos)), length(dFdy(vWaterPos))) * uChopScale;
 
   vec2 g = vec2(0.0);
   g += chopTerm(p, vec2( 0.62,  0.78), 1.10, 0.045,  2.7, uTime, px);
@@ -153,6 +171,86 @@ export const WAVE_CHOP_CHUNK = /* glsl */ `
   // survives the whole way across one.
   g *= 0.55 + 0.45 * sin(dot(p, vec2(0.36, -0.93)) * 0.052 + uTime * 0.31);
 
-  normal = normalize(normal + vec3(-g.x, 0.0, -g.y));
+  /*
+    Rotated into view space before it is applied.
+
+    The water is horizontal in WORLD space, so the perturbed world normal is
+    normalize(vec3(-g.x, 1, -g.y)) — the gradient tilts it away from world up.
+    But the shader's normal at this point is vNormal, which is in VIEW
+    space, so adding a world-space offset to it is a category error.
+
+    It was not an invisible one. Seen obliquely from across the ocean, world Y
+    lands close to view Y and the mistake merely bent the ripples; seen from
+    almost directly overhead, as the Geographical Garden's map is, world X and Z
+    land in the SCREEN plane and world Y goes into depth, so the tilt that
+    should have caught the sun went into the one axis that barely changes what a
+    facet reflects — and the pool rendered as a flat blue rectangle no matter
+    how far the chop was pushed.
+
+    mat3(viewMatrix) columns 0 and 2 are the world X and Z axes expressed in
+    view space, which is exactly the change of basis needed, and it costs one
+    matrix the fragment shader is already given.
+  */
+  mat3 wv = mat3(viewMatrix);
+  normal = normalize(normal - (wv[0] * g.x + wv[2] * g.y) * uChopStrength);
 }
 `
+
+/**
+ * Patch a standard material so its surface behaves like water.
+ *
+ * Two independent halves. `swell` displaces vertices by waveHeight and derives
+ * the matching normal — the real sea, and it needs a plane with enough segments
+ * to carry the displacement. Without it only the fragment-level chop is
+ * applied, which needs no subdivision at all because it perturbs the normal
+ * rather than the surface. A flat inlaid pool wants exactly that: it should
+ * glint and ripple, not heave.
+ *
+ * Both halves share one uTime, so every body of water in the scene is on the
+ * same clock and the boat, the foam band and the map's pool cannot drift out of
+ * phase with the sea they belong to.
+ */
+export function water(
+  material: THREE.MeshStandardMaterial,
+  { swell = false, chopScale = 1, chopStrength = 1 } = {},
+) {
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime
+    shader.uniforms.uChopScale = { value: chopScale }
+    shader.uniforms.uChopStrength = { value: chopStrength }
+
+    let vert = `uniform float uTime;\nvarying vec2 vWaterPos;\n${WAVE_GLSL}\n${shader.vertexShader}`
+
+    if (swell) {
+      vert = vert
+        .replace('#include <beginnormal_vertex>', WAVE_NORMAL_CHUNK)
+        .replace('#include <begin_vertex>', WAVE_DISPLACE_CHUNK)
+    } else {
+      // No displacement, but the chop still needs to know where on the surface
+      // it is, so the varying is written from the undisturbed position.
+      vert = vert.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n  vWaterPos = (modelMatrix * vec4(transformed, 1.0)).xz;',
+      )
+    }
+    shader.vertexShader = vert
+
+    shader.fragmentShader = [
+      'uniform float uTime;',
+      'uniform float uChopScale;',
+      'uniform float uChopStrength;',
+      'varying vec2 vWaterPos;',
+      WAVE_CHOP_GLSL,
+      shader.fragmentShader,
+    ]
+      .join('\n')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WAVE_CHOP_CHUNK}`)
+  }
+
+  // The two variants compile to different vertex source, so they must not share
+  // a cache entry — otherwise whichever compiled first would be handed to both
+  // and one of them would be silently wrong.
+  material.customProgramCacheKey = () => `water-${swell}`
+  material.needsUpdate = true
+  return material
+}

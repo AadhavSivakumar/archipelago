@@ -6,6 +6,7 @@ import { prefersReducedMotion } from '../animations/gsap'
 import { DISTRICTS, districtCentre, type District, type DistrictId } from './districts'
 import { sampleHeight } from './terrain'
 import { weather, type WeatherOptions } from './surface'
+import { water } from '../shaders/water'
 
 // ---------------------------------------------------------------------------
 // Shared materials. One instance each, reused by every landmark — a fresh
@@ -603,9 +604,17 @@ const CONTINENT_GEOMETRY = (() => {
   return geo
 })()
 
-/** The graticule: meridians every 30 degrees, parallels every 30. */
-const MERIDIAN = new THREE.BoxGeometry(0.05, 0.06, MAP_D)
-const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.06, 0.05)
+/*
+  The graticule: meridians every 30 degrees, parallels every 30.
+
+  Thinner and in stone rather than marble. Ruled in near-white at 0.05 they were
+  the highest-contrast thing on the plate, so from overhead the map read as a
+  grid with some green shapes on it rather than as a world with a grid over it.
+  A graticule is a reference, and a reference should be the quietest mark on a
+  drawing.
+*/
+const MERIDIAN = new THREE.BoxGeometry(0.035, 0.06, MAP_D)
+const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.06, 0.035)
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
 const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
 
@@ -622,10 +631,57 @@ const CYPRESS_TRUNK = new THREE.CylinderGeometry(0.16, 0.2, 0.7, 48)
 const PLINTH_TOP = new THREE.CylinderGeometry(1.2, 1.7, 1.7, 128)
 const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
 
-// Deepened along with the terrain palette. At full saturation the map face read
-// as a lit panel rather than as an inlaid stone table.
-const MAP_LAND_MAT = std({ color: '#4a8455', roughness: 0.85 }, { grain: 4, mottle: 0.24, bump: 0.3, rough: 0.14 })
-const MAP_SEA_MAT = std({ color: '#28607f', roughness: 0.55, metalness: 0.12 }, DRESSED)
+/*
+  The map is made of the two things it depicts, not of two paints.
+
+  The continents were a flat green solid and the ocean a flat blue one, which
+  made the plate read as a printed diagram lying on a table. Land is now turfed
+  — a very fine, strongly varied grain with a deep bump, so the raised outlines
+  carry a lawn rather than a colour — and the sea is the scene's own water
+  shader.
+
+  The pool takes only the chop half of that shader, not the swell: the face is a
+  box with four vertices to its top, so vertex displacement would have nothing
+  to displace, and a puddle inlaid in a stone plate should glint and ripple
+  rather than heave. chopScale 2.6 compresses the ripple into a 12.6-unit
+  basin — at scale 1 the coarsest component's crest is half the width of the
+  Pacific.
+
+  MAP_SEA_MAT is built directly rather than through std() because water() takes
+  over onBeforeCompile outright, and std() would have installed the surface
+  weathering there first only to have it overwritten.
+*/
+/*
+  Grain 5, not the 26 this was first given.
+
+  26 is the frequency turf actually has, and it was completely invisible: the
+  plan view parks 27 units up, which puts one pixel across 0.024 world units,
+  so a 0.04-unit blade is half a pixel and surface.ts's footprint fade — quite
+  correctly — took the whole thing to zero. Grain has to be chosen against the
+  distance the surface is *looked at* from, not against the real thing. At 5 the
+  variation lands around eight pixels, which is the size at which the eye reads
+  a lawn rather than a colour, and the amplitude is pushed up to compensate for
+  the coarser scale.
+*/
+const MAP_LAND_MAT = std(
+  { color: '#4d8a56', roughness: 0.92 },
+  { grain: 5, mottle: 0.5, bump: 1.1, rough: 0.18 },
+)
+
+/*
+  chopStrength 2.6 rather than the ocean's 1.
+
+  The open sea is looked at obliquely from a hundred units away, where a
+  six-degree ripple is spread across a huge grazing angle and reads as plenty.
+  This pool is looked at from almost directly overhead at twenty-seven, where
+  the same tilt barely changes what any facet reflects and the water goes back
+  to being a blue rectangle. The stronger setting is not a different sea, it is
+  the same sea seen from a viewpoint that flatters it far less.
+*/
+const MAP_SEA_MAT = water(
+  new THREE.MeshStandardMaterial({ color: '#1b5b85', roughness: 0.3, metalness: 0.45 }),
+  { chopScale: 2.6, chopStrength: 2.6 },
+)
 
 export function GeographicalGarden({ d }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
@@ -637,12 +693,12 @@ export function GeographicalGarden({ d }: LandmarkProps) {
       <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
 
       {/* Graticule, ruled across the sea face. */}
-      <Instances geometry={MERIDIAN} material={mat.marble} limit={MERIDIANS.length}>
+      <Instances geometry={MERIDIAN} material={mat.stone} limit={MERIDIANS.length}>
         {MERIDIANS.map((x, i) => (
           <Instance key={i} position={[x, 0.5, 0]} />
         ))}
       </Instances>
-      <Instances geometry={PARALLEL} material={mat.marble} limit={PARALLELS.length}>
+      <Instances geometry={PARALLEL} material={mat.stone} limit={PARALLELS.length}>
         {PARALLELS.map((z, i) => (
           <Instance key={i} position={[0, 0.5, z]} />
         ))}

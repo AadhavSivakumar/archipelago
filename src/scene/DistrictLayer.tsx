@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtPosition, type DistrictId } from './districts'
 import { LANDMARKS } from './landmarks'
+import { setCursor } from './cursor'
 
 type Props = {
   focus: DistrictId | null
@@ -124,10 +125,35 @@ export function Districts({ focus, onFocus, occluders, deepLinked }: Props) {
               started a flight into a district that had not risen yet. Inside,
               it rides the same rise and back.out pop as the landmark it names.
             */}
+            {/*
+              The landmark itself is the primary control, not the pill above
+              it. Clicking the thing you are looking at is the obvious gesture,
+              and requiring the label instead made the label the only way in —
+              a small target floating above a large, inviting one.
+
+              stopPropagation because the island's ground under this landmark
+              carries the same handler (Island.tsx). Both resolve to the same
+              district, so it changes nothing today; it stops the pair from
+              disagreeing later, when a landmark overhangs its neighbour.
+
+              Not keyboard-reachable, and deliberately: the panel already lists
+              all six as real buttons, and adding a second set would give a
+              screen reader twelve controls with six duplicated names. Same
+              reasoning as the marker below, which is aria-hidden for it.
+            */}
             <group
               ref={(el) => {
                 if (el) animated.current[i] = el
               }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onFocus(focus === d.id ? null : d.id)
+              }}
+              onPointerOver={(e) => {
+                e.stopPropagation()
+                setCursor('pointer')
+              }}
+              onPointerOut={() => setCursor('')}
             >
               <Landmark d={d} />
 

@@ -3,14 +3,37 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import { islandGeometry, islandOccluderGeometry, ISLAND_MATERIAL } from './terrain'
-import {
-  uTime,
-  WAVE_CHOP_CHUNK,
-  WAVE_CHOP_GLSL,
-  WAVE_DISPLACE_CHUNK,
-  WAVE_GLSL,
-  WAVE_NORMAL_CHUNK,
-} from '../shaders/water'
+import { DISTRICTS, districtCentre, type DistrictId } from './districts'
+import { setCursor } from './cursor'
+import { uTime, water } from '../shaders/water'
+
+/**
+ * How near a click has to land to count as picking a district, in world units.
+ *
+ * The islands are 24-26 units across and their centres are 40-90 apart, so 26
+ * covers a district's own island generously without ever reaching a
+ * neighbour's. Clicks on the open mainland or on an uninhabited islet fall
+ * outside every radius and do nothing, which is the right answer: there is
+ * nothing there to go to.
+ */
+const PICK_RADIUS = 26
+
+/** The district whose island a world-space point falls on, if any. */
+function nearestDistrict(x: number, z: number): DistrictId | null {
+  let best: DistrictId | null = null
+  let bestDist = PICK_RADIUS
+
+  for (const d of DISTRICTS) {
+    const [cx, cz] = districtCentre(d)
+    const dist = Math.hypot(x - cx, z - cz)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = d.id
+    }
+  }
+
+  return best
+}
 
 type IslandProps = {
   /**
@@ -20,6 +43,8 @@ type IslandProps = {
    * mesh you can actually see.
    */
   occluderRef: RefObject<THREE.Mesh>
+  /** Called when the visitor clicks the ground inside a district's island. */
+  onPick: (id: DistrictId) => void
   /** Skip the reveal: the visitor arrived pointed at a district already. */
   deepLinked: boolean
 }
@@ -33,7 +58,7 @@ type IslandProps = {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -74,8 +99,41 @@ export function Island({ occluderRef, deepLinked }: IslandProps) {
         when raycasting (Raycaster.intersect checks layers, Mesh.raycast never
         reads it), and Mesh supplies a default material, which is all the
         raycast needs. Being invisible also keeps it out of the shadow pass.
+
+        It carries the ground click as well as the label occlusion, and it is
+        the right mesh for both. The display mesh beside it is half a million
+        triangles with no BVH; putting a pointer handler on THAT would make
+        every mouse move raycast it, which was measured at 26ms — more than a
+        whole frame's budget spent deciding whether the cursor is over grass.
+        This proxy answers the same question in under 2ms.
       */}
-      <mesh ref={occluderRef} geometry={occluder} visible={false} />
+      <mesh
+        ref={occluderRef}
+        geometry={occluder}
+        visible={false}
+        onClick={(e) => {
+          const id = nearestDistrict(e.point.x, e.point.z)
+          if (!id) return
+          e.stopPropagation()
+          onPick(id)
+        }}
+        /*
+          The ground is clickable over a district's island and inert everywhere
+          else, and nothing on screen distinguishes the two — so the cursor has
+          to. onPointerMove rather than onPointerOver, because the answer
+          depends on WHERE on this one mesh the pointer is, and `over` fires
+          once on entry and never again as it crosses from a district's island
+          out to open mainland.
+
+          R3F fires move after the out/over pair within a single pointermove, so
+          leaving a landmark onto the island beneath it ends with this handler
+          having the last word rather than the landmark's onPointerOut.
+        */
+        onPointerMove={(e) => {
+          setCursor(nearestDistrict(e.point.x, e.point.z) ? 'pointer' : '')
+        }}
+        onPointerOut={() => setCursor('')}
+      />
     </group>
   )
 }
@@ -110,20 +168,13 @@ const WATER_MATERIAL = new THREE.MeshStandardMaterial({
 
 // The wave itself now lives in src/shaders/water.ts, because the island's foam
 // band and the drifting boat have to agree with it exactly.
-WATER_MATERIAL.onBeforeCompile = (shader) => {
-  shader.uniforms.uTime = uTime
-
-  shader.vertexShader = `uniform float uTime;\nvarying vec2 vWaterPos;\n${WAVE_GLSL}\n${shader.vertexShader}`
-  shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', WAVE_NORMAL_CHUNK)
-  shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', WAVE_DISPLACE_CHUNK)
-
-  // The chop rides on the normal the swell already computed, so it has to be
-  // injected after the normal is final rather than replacing any part of it.
-  shader.fragmentShader = `uniform float uTime;\nvarying vec2 vWaterPos;\n${WAVE_CHOP_GLSL}\n${shader.fragmentShader}`.replace(
-    '#include <normal_fragment_maps>',
-    `#include <normal_fragment_maps>\n${WAVE_CHOP_CHUNK}`,
-  )
-}
+/*
+  chopStrength 1.7 rather than 1. The ripple used to be applied in the wrong
+  basis, which spread it across axes it did not belong on and made it look
+  busier than it was; corrected, the same numbers read noticeably calmer. This
+  puts the apparent texture back where it was, honestly this time.
+*/
+water(WATER_MATERIAL, { swell: true, chopStrength: 1.7 })
 
 export function Water() {
   useFrame((state) => {

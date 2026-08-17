@@ -14,6 +14,11 @@ type Props = {
   occluders: RefObject<THREE.Mesh>
   /** Skip the reveal: the visitor arrived pointed at a district already. */
   deepLinked: boolean
+  /**
+   * When set, only this district is drawn. Used while the camera is down among
+   * the Geographical Garden's map, where the others are all off-frame.
+   */
+  soloDistrict: DistrictId | null
 }
 
 /**
@@ -45,7 +50,7 @@ const LABEL_HEIGHT: Record<DistrictId, number> = {
   anthropology: 14,
 }
 
-export function Districts({ focus, onFocus, occluders, deepLinked }: Props) {
+export function Districts({ focus, onFocus, occluders, deepLinked, soloDistrict }: Props) {
   const root = useRef<THREE.Group>(null!)
   const animated = useRef<THREE.Group[]>([])
   const gl = useThree((s) => s.gl)
@@ -116,7 +121,16 @@ export function Districts({ focus, onFocus, occluders, deepLinked }: Props) {
       {DISTRICTS.map((d, i) => {
         const Landmark = LANDMARKS[d.id]
         return (
-          <group key={d.id} position={districtPosition(d)}>
+          /*
+            Hidden, not unmounted: the reveal timeline holds refs to the inner
+            groups, and tearing them out from under it would leave those entries
+            null and the transforms wherever GSAP last wrote them.
+          */
+          <group
+            key={d.id}
+            position={districtPosition(d)}
+            visible={soloDistrict === null || soloDistrict === d.id}
+          >
             {/*
               The label lives INSIDE the animated group, not beside it. As a
               sibling it was pinned at full height from frame one, so the first
@@ -155,7 +169,7 @@ export function Districts({ focus, onFocus, occluders, deepLinked }: Props) {
               }}
               onPointerOut={() => setCursor('')}
             >
-              <Landmark d={d} />
+              <Landmark d={d} focused={focus === d.id} />
 
             {/*
               `occlude` as a ref array raycasts against the landmass only —

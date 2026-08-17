@@ -78,6 +78,57 @@ function assemble(r: TerrainArrays) {
   return geo
 }
 
+/*
+  Resolution of the stand-in used while the camera is down on the world map.
+
+  452 x 576 against 128 x 164 is a twelfth of the vertices and a twelfth of the
+  triangles. That ratio is the point: with the camera five to fourteen units
+  above a plate twelve units across, the island is peripheral — most of it is
+  outside the frustum, and a single mesh is submitted whole whether or not its
+  triangles land on screen. Half a million vertices transformed every frame to
+  draw the strip of grass around a map is the definition of paying for detail
+  nobody is looking at.
+
+  Not a further reduction than this, because the coastline is still in shot at
+  the edges of the frame and its silhouette is what a coarser grid loses first.
+*/
+const LOD_X = 128
+const LOD_Z = 164
+
+let lodBuilt: THREE.BufferGeometry | null = null
+
+/**
+ * A coarse island, for when the map is the subject.
+ *
+ * Synchronous and lazy. Unlike the display mesh this is roughly 20k vertices
+ * rather than 260k, which measures in single-digit milliseconds — not worth a
+ * worker round trip, and it is built at most once per session, the first time
+ * the camera drops below the switch threshold.
+ */
+export function islandLodGeometry() {
+  if (lodBuilt) return lodBuilt
+  const { positions, index } = buildGridArrays(LOD_X, LOD_Z)
+  const { normals, colors } = shadeTerrain(positions, index, PALETTE)
+  lodBuilt = assemble({ positions, normals, colors, index })
+  return lodBuilt
+}
+
+/**
+ * The plain material the coarse island wears.
+ *
+ * Unweathered, and that is most of the saving. The grain in surface.ts is four
+ * octaves of value noise plus screen-space derivatives per fragment, which is
+ * by some distance the most expensive shader in the scene; dropping it matters
+ * more than the triangle count does, because the fragments it covers are the
+ * ones nearest the camera. Same vertex colours, so the land keeps its palette
+ * and only loses its texture.
+ */
+export const ISLAND_LOD_MATERIAL = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.95,
+  metalness: 0,
+})
+
 /** The synchronous path, kept as the fallback for when a worker cannot start. */
 function buildIslandGeometrySync() {
   const { positions, index } = buildGridArrays(GRID_X, GRID_Z)

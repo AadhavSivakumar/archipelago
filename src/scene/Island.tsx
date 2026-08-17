@@ -2,7 +2,13 @@ import { use, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
-import { islandGeometry, islandOccluderGeometry, ISLAND_MATERIAL } from './terrain'
+import {
+  islandGeometry,
+  islandLodGeometry,
+  islandOccluderGeometry,
+  ISLAND_LOD_MATERIAL,
+  ISLAND_MATERIAL,
+} from './terrain'
 import { DISTRICTS, districtCentre, type DistrictId } from './districts'
 import { setCursor } from './cursor'
 import { uTime, water } from '../shaders/water'
@@ -47,6 +53,11 @@ type IslandProps = {
   onPick: (id: DistrictId) => void
   /** Skip the reveal: the visitor arrived pointed at a district already. */
   deepLinked: boolean
+  /**
+   * Drop to the coarse island. Set while the camera is down among the
+   * Geographical Garden's map, where the land is scenery rather than subject.
+   */
+  lowDetail: boolean
 }
 
 /**
@@ -58,7 +69,7 @@ type IslandProps = {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked, onPick }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick, lowDetail }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -93,7 +104,23 @@ export function Island({ occluderRef, deepLinked, onPick }: IslandProps) {
 
   return (
     <group ref={group}>
-      <mesh geometry={geometry} material={ISLAND_MATERIAL} receiveShadow castShadow />
+      {/*
+        Both meshes exist; only one is drawn. Swapping `visible` rather than
+        unmounting keeps the reveal's GSAP timeline pointed at a stable object
+        and avoids rebuilding a BufferGeometry every time the visitor zooms
+        across the threshold — the coarse one is built once, on the first frame
+        it is actually needed, and kept.
+      */}
+      <mesh
+        geometry={geometry}
+        material={ISLAND_MATERIAL}
+        visible={!lowDetail}
+        receiveShadow
+        castShadow
+      />
+      {lowDetail && (
+        <mesh geometry={islandLodGeometry()} material={ISLAND_LOD_MATERIAL} receiveShadow />
+      )}
       {/*
         Never drawn — a raycast target only. three does not consult `visible`
         when raycasting (Raycaster.intersect checks layers, Mesh.raycast never

@@ -122,7 +122,56 @@ function AdaptiveDpr() {
   )
 }
 
+/**
+ * Watches how close the camera has come to what it is looking at, and says when
+ * the world map has become the subject rather than an object in a garden.
+ *
+ * A useFrame rather than a reaction to the focus change, because "focused on
+ * the Garden" and "reading the map" are different states: the district is
+ * ARRIVED at from 22 units with the whole island in frame, and it should look
+ * its best there. Only once the visitor has chosen to come closer does trading
+ * the scenery for the map become the right bargain.
+ *
+ * Hysteresis, and it is not optional. A single threshold on a value the visitor
+ * drives continuously — and that OrbitControls keeps damping for a second after
+ * they stop — sits exactly on the boundary sooner or later and flips the whole
+ * scene's level of detail every frame. Fourteen down, seventeen back up: a
+ * three-unit band is wider than the damping ever overshoots.
+ *
+ * setState only on a crossing, so the common case costs one distance
+ * calculation per frame and no React work at all.
+ */
+function MapDetail({ active, onChange }: { active: boolean; onChange: (low: boolean) => void }) {
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls) as { target?: THREE.Vector3 } | null
+  const low = useRef(false)
+
+  const set = (next: boolean) => {
+    if (low.current === next) return
+    low.current = next
+    onChange(next)
+  }
+
+  useFrame(() => {
+    if (!active || !controls?.target) {
+      set(false)
+      return
+    }
+    const d = camera.position.distanceTo(controls.target)
+    if (d < 14) set(true)
+    else if (d > 17) set(false)
+  })
+
+  return null
+}
+
 export function Scene({ focus, onFocus }: Props) {
+  /*
+    True while the camera is down among the Geographical Garden's map. Drives
+    every level-of-detail decision in this file: the coarse island, the dropped
+    ambient layer, and the other five districts going unrendered.
+  */
+  const [mapDetail, setMapDetail] = useState(false)
   // Held here so the labels can occlude against the landmass they sit on. This
   // is the coarse proxy, not the display mesh — see islandOccluderGeometry.
   const occluder = useRef<THREE.Mesh>(null!)
@@ -225,7 +274,13 @@ export function Scene({ focus, onFocus }: Props) {
       />
 
       <Water />
-      <Ambient />
+      {/*
+        The sky's ornaments go when the map does. Clouds are large transparent
+        meshes that cost fill wherever they cover the frame, and neither they
+        nor the birds nor the boat is on screen with the camera five units above
+        a plate — they are all above or beyond it.
+      */}
+      <Ambient visible={!mapDetail} />
 
       {/*
         The island's geometry is built on a worker, so Island suspends. Sky,
@@ -240,12 +295,32 @@ export function Scene({ focus, onFocus }: Props) {
         empty while something is reading it.
       */}
       <Suspense fallback={null}>
-        <Island occluderRef={occluder} deepLinked={deepLinked} onPick={onFocus} />
+        <Island
+          occluderRef={occluder}
+          deepLinked={deepLinked}
+          onPick={onFocus}
+          lowDetail={mapDetail}
+        />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does
             would leave it floating. */}
-        <Monument />
-        <Districts focus={focus} onFocus={onFocus} occluders={occluder} deepLinked={deepLinked} />
+        {/* Off with the rest of the archipelago while the map is the subject —
+          it stands on the centre island, well outside the map's frame. */}
+        <Monument visible={!mapDetail} />
+        <Districts
+          focus={focus}
+          onFocus={onFocus}
+          occluders={occluder}
+          deepLinked={deepLinked}
+          /*
+            Down among the map, the other five districts are 50 to 100 units
+            away laterally and none of them is in frame. They are still drawn,
+            though — a lighthouse is not one mesh but a lathe, a rail, a door
+            and nine windows, and frustum culling happens per object, so five
+            districts' worth of small draw calls are issued to render nothing.
+          */
+          soloDistrict={mapDetail ? focus : null}
+        />
       </Suspense>
 
       {/*
@@ -274,6 +349,8 @@ export function Scene({ focus, onFocus }: Props) {
         <SMAA />
       </EffectComposer>
 
+      <MapDetail active={focus === 'geography'} onChange={setMapDetail} />
+
       <AdaptiveDpr />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} onFlyingChange={setFlying} />
@@ -282,9 +359,22 @@ export function Scene({ focus, onFocus }: Props) {
         enablePan={false}
         enableDamping
         dampingFactor={0.06}
-        // The home framing alone sits at ~121 units out now, so the old 110
-        // ceiling would have clamped the camera before it ever arrived.
-        minDistance={18}
+        /*
+          18 everywhere except the Geographical Garden, which is 5.
+
+          18 is right for a district whose subject is a building: closer than
+          that and the camera is inside the colonnade. The Garden's subject is a
+          12.6-unit map with 177 countries on it, several of which survive
+          simplification as a quadrilateral, and at 18 units they are a pixel
+          across and unclickable. Letting the camera come in to 5 is what makes
+          "each country selectable" true of Luxembourg as well as of Russia.
+
+          Applied through OrbitControls rather than by moving the parked view,
+          because it is a floor on zoom, not a framing — the district still
+          ARRIVES at 22 units with the whole world in frame, and coming closer
+          is then something the visitor chooses.
+        */
+        minDistance={focus === 'geography' ? 5 : 18}
         // Home is ~126 units out and framing.ts pulls back up to 2x on a portrait
         // phone, so the ceiling has to clear 252.
         maxDistance={320}

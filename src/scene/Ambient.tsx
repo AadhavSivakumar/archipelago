@@ -257,7 +257,7 @@ function Boat() {
 
 // ---------------------------------------------------------------------------
 
-export function Ambient() {
+export function Ambient({ visible }: { visible: boolean }) {
   const clouds = useRef<THREE.Group>(null!)
   const birds = useRef<(THREE.Object3D | null)[]>([])
 
@@ -284,8 +284,14 @@ export function Ambient() {
 
   const cloudGeometry = useMemo(() => CLOUD, [])
 
+  /*
+    Hidden rather than unmounted. The useFrame above keeps running and keeps the
+    flock and the boat on their courses while they are out of sight, so coming
+    back up from the map finds them where they would have been rather than
+    snapped back to their starting phase — and nothing has to be rebuilt.
+  */
   return (
-    <group>
+    <group visible={visible}>
       <group ref={clouds}>
         <Instances geometry={cloudGeometry} material={CLOUD_MATERIAL} limit={CLOUD_LOBES.length}>
           {CLOUD_LOBES.map((c, i) => (

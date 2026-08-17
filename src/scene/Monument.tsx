@@ -114,7 +114,7 @@ const CONTINENTS = (
   }
 })
 
-export function Monument() {
+export function Monument({ visible }: { visible: boolean }) {
   const globe = useRef<THREE.Group>(null!)
 
   useFrame((_, dt) => {
@@ -125,7 +125,7 @@ export function Monument() {
   const ground = sampleHeight(MONUMENT_AT.x, MONUMENT_AT.z)
 
   return (
-    <group position={[MONUMENT_AT.x, ground, MONUMENT_AT.z]}>
+    <group position={[MONUMENT_AT.x, ground, MONUMENT_AT.z]} visible={visible}>
       {STEPS.map((s, i) => (
         <mesh key={i} geometry={STEP} scale={[s.r, 1, s.r]} position={[0, s.y, 0]} material={STONE} />
       ))}

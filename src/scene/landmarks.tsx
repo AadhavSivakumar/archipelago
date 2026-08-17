@@ -1,13 +1,24 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Instance, Instances } from '@react-three/drei'
+import { Html, Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
 import { prefersReducedMotion } from '../animations/gsap'
 import { DISTRICTS, districtCentre, type District, type DistrictId } from './districts'
 import { sampleHeight } from './terrain'
 import { weather, type WeatherOptions } from './surface'
 import { water } from '../shaders/water'
-import { LAND_RINGS } from './worldOutline'
+import { COUNTRIES } from './worldCountries'
+import {
+  countryAt,
+  landMaterial,
+  MAP_D,
+  MAP_SCALE,
+  MAP_W,
+  uHoverCountry,
+  uPickedCountry,
+  worldMap,
+} from './worldMap'
+import { setCursor } from './cursor'
 
 // ---------------------------------------------------------------------------
 // Shared materials. One instance each, reused by every landmark — a fresh
@@ -92,7 +103,20 @@ const ACCENT = Object.fromEntries(
   ]),
 ) as Record<DistrictId, THREE.MeshStandardMaterial>
 
-export type LandmarkProps = { d: District }
+export type LandmarkProps = {
+  d: District
+  /**
+   * Whether this district is the one currently being looked at.
+   *
+   * Only the Geographical Garden uses it, and it needs it: its countries are
+   * pickable, and a pick has to mean "select this country" only once the
+   * visitor is actually reading the map. From the whole-archipelago view the
+   * plate is forty pixels across, and a click there means "take me to the
+   * Garden" — which is what the group above this handles, and what a country
+   * handler would swallow.
+   */
+  focused: boolean
+}
 
 // ---------------------------------------------------------------------------
 // Placement helpers
@@ -106,7 +130,6 @@ function rng(seed: number) {
     return s / 4294967296
   }
 }
-
 
 /**
  * Deterministically perturbs a geometry's vertices, so a turned or extruded
@@ -541,64 +564,13 @@ export function HistoricalHabitat() {
   flat the way a formal parterre is. Two representations of the same subject,
   each doing what the other cannot.
 
-  Map space is degrees. MAP_SCALE converts to world units, so the plate is
-  360 x 180 degrees = 21.6 x 10.8 units, and everything on it is authored in
-  longitude and latitude.
+  The plate's dimensions, the projection scale and the country geometry all live
+  in worldMap.ts, which is where the pickable version of the continents had to
+  go. What stays here is the garden the map sits in.
 */
-/*
-  Sized to the ground it sits on, not chosen for convenience. The plate is a
-  rigid slab, so any part of it past the flattened plateau either floats or
-  buries itself — and the plateau here is measurably flat only to a radius of 8
-  (spread 0.20 units at r=8; 1.52 at r=9). A 2:1 plate inscribed in that circle
-  can be at most 14.3 x 7.2 including its kerb, which puts the scale at 0.035
-  degrees per world unit.
-*/
-const MAP_SCALE = 0.035
-const MAP_W = 360 * MAP_SCALE
-const MAP_D = 180 * MAP_SCALE
 
 const MAP_PLATE = new THREE.BoxGeometry(MAP_W + 1.1, 0.42, MAP_D + 1.1)
 const MAP_FACE = new THREE.BoxGeometry(MAP_W, 0.1, MAP_D)
-
-/**
- * The continents, from real coastlines.
- *
- * These used to be seven hand-typed outlines of eight to twelve points each —
- * enough to say "this is a world map" from across the room and not enough to
- * survive being looked at, which is exactly what the plan view now invites. A
- * ten-point Africa is a blob. The data in worldOutline.ts is Natural Earth's
- * 110m land, simplified to the resolution this plate can actually show.
- *
- * On the double negation that had the map upside down: a THREE.Shape is
- * authored in XY and this one is laid flat with rotateX(-90), which sends shape
- * Y to world -Z. North is -Z, so shape Y has to be latitude ITSELF, not its
- * negation. The old lonLat() helper negated it, the rotation negated it again,
- * and the two cancelled — every landmass in the southern hemisphere drew in the
- * northern one, with Antarctica along the top edge. Neither step was wrong on
- * its own, which is why it lasted: each carried a correct comment about what it
- * did, and nobody composed them. The plate and its graticule are symmetric
- * about both axes, so nothing else in the district contradicted it, and from
- * the old oblique view the continents were too coarse to recognise.
- */
-const CONTINENT_GEOMETRY = (() => {
-  const shapes = LAND_RINGS.map((ring) => {
-    const shape = new THREE.Shape()
-    for (let i = 0; i < ring.length; i += 2) {
-      const x = (ring[i] / 10) * MAP_SCALE
-      // Latitude, un-negated. See the note above.
-      const y = (ring[i + 1] / 10) * MAP_SCALE
-      if (i === 0) shape.moveTo(x, y)
-      else shape.lineTo(x, y)
-    }
-    shape.closePath()
-    return shape
-  })
-
-  const geo = new THREE.ExtrudeGeometry(shapes, { depth: 0.22, bevelEnabled: false, curveSegments: 1 })
-  // Extruded along +Z in shape space; lay it flat so depth becomes height.
-  geo.rotateX(-Math.PI / 2)
-  return geo
-})()
 
 /*
   The graticule: meridians every 30 degrees, parallels every 30.
@@ -661,31 +633,6 @@ const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
 /*
   Grain 5, not the 26 this was first given.
 
-  26 is the frequency turf actually has, and it was completely invisible: the
-  plan view parks 27 units up, which puts one pixel across 0.024 world units,
-  so a 0.04-unit blade is half a pixel and surface.ts's footprint fade — quite
-  correctly — took the whole thing to zero. Grain has to be chosen against the
-  distance the surface is *looked at* from, not against the real thing. At 5 the
-  variation lands around eight pixels, which is the size at which the eye reads
-  a lawn rather than a colour, and the amplitude is pushed up to compensate for
-  the coarser scale.
-*/
-const MAP_LAND_MAT = std(
-  { color: '#4d8a56', roughness: 0.92 },
-  /*
-    Softened a long way from mottle 0.5 / bump 1.1.
-
-    Against seven hand-typed blobs the heavy grain was the only thing giving the
-    land any character, so it kept being pushed up. Against real coastlines it
-    has nothing to prove and a great deal to spoil: at ten pixels per noise
-    feature, a strong per-fragment variation IS what reads as the map being
-    pixelated, and it lands hardest on exactly the thin coastal detail the new
-    outlines were added for. Turned down until it reads as the surface of a lawn
-    rather than as a texture applied to one.
-  */
-  { grain: 4, mottle: 0.16, bump: 0.35, rough: 0.12 },
-)
-
 /*
   chopStrength 2.6 rather than the ocean's 1.
 
@@ -701,11 +648,63 @@ const MAP_SEA_MAT = water(
   { chopScale: 2.6, chopStrength: 2.6 },
 )
 
-export function GeographicalGarden({ d }: LandmarkProps) {
+/*
+  One material instance, built lazily and shared. Building it at module scope
+  would compile the country geometry on first import, which is during the
+  initial bundle evaluation — before the boot screen has even been replaced.
+*/
+let landMat: THREE.MeshStandardMaterial | null = null
+
+export function GeographicalGarden({ d, focused }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
+  const { geometry: countryGeometry, centres } = useMemo(() => worldMap(), [])
+  const material = useMemo(() => (landMat ??= landMaterial()), [])
+
+  /*
+    The chosen country is the one piece of this that React needs to know about,
+    because it is the only one that changes the DOM — the label below. The
+    HIGHLIGHT does not go through state: it is written straight into the two
+    uniforms in worldMap.ts, so following the pointer across the map costs two
+    float writes rather than a React render per mouse move.
+  */
+  const [picked, setPicked] = useState(-1)
+
+  // Leaving the district must not leave a country lit up behind it, and coming
+  // back to it should start clean rather than resuming a selection made before
+  // a trip to the Alps.
+  useEffect(() => {
+    if (focused) return
+    setPicked(-1)
+    uPickedCountry.value = -1
+    uHoverCountry.value = -1
+  }, [focused])
 
   return (
-    <group>
+    /*
+      While the district is focused, the plate absorbs every click that is not a
+      country.
+
+      Without this the map is a trap. The group that wraps every landmark
+      toggles district focus, so a click that missed a country — the sea, the
+      kerb, the hedge — bubbled up to it and threw the visitor straight back out
+      to the whole archipelago. Clicking around a map is mostly clicking the sea,
+      so the one district whose whole purpose is to be clicked was the one you
+      could not click.
+
+      Clearing the selection is the right thing to do with those clicks anyway:
+      it is how every map application in the world says "never mind", and it
+      gives the visitor a way back to nothing selected that is not "select
+      something else". The country mesh below stops propagation before this ever
+      sees a hit on land.
+    */
+    <group
+      onClick={(e) => {
+        if (!focused) return
+        e.stopPropagation()
+        setPicked(-1)
+        uPickedCountry.value = -1
+      }}
+    >
       {/* The plate: a stone kerb, the sea face inset into it. */}
       <mesh geometry={MAP_PLATE} position={[0, 0.21, 0]} material={mat.stone} />
       <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
@@ -724,8 +723,73 @@ export function GeographicalGarden({ d }: LandmarkProps) {
       <mesh geometry={EQUATOR} position={[0, 0.52, 0]} material={mat.brass} />
       <mesh geometry={PRIME} position={[0, 0.52, 0]} material={mat.brass} />
 
-      {/* Landmasses, standing proud of the water. */}
-      <mesh geometry={CONTINENT_GEOMETRY} position={[0, 0.51, 0]} material={MAP_LAND_MAT} castShadow />
+      {/*
+        The countries.
+
+        One mesh for all 177 — see worldMap.ts. The handlers are live only while
+        the district is focused; unfocused, they return without stopping
+        propagation so the click carries on up to the group that focuses the
+        district, which is what a click on a forty-pixel plate means.
+      */}
+      <mesh
+        geometry={countryGeometry}
+        position={[0, 0.51, 0]}
+        material={material}
+        castShadow
+        onPointerMove={(e) => {
+          if (!focused) return
+          e.stopPropagation()
+          uHoverCountry.value = countryAt(e.faceIndex)
+          setCursor('pointer')
+        }}
+        onPointerOut={() => {
+          uHoverCountry.value = -1
+        }}
+        onClick={(e) => {
+          if (!focused) return
+          const id = countryAt(e.faceIndex)
+          if (id < 0) return
+          e.stopPropagation()
+          // Clicking the chosen country again clears it, so there is a way back
+          // to no selection that is not "pick something else".
+          const next = id === picked ? -1 : id
+          setPicked(next)
+          uPickedCountry.value = next
+        }}
+      />
+
+      {/*
+        The chosen country's name, over the country itself.
+
+        In the scene rather than in the side panel because the answer to "what
+        did I just click" belongs next to the thing clicked. occlude is left
+        off: the label sits half a unit above a flat plate with nothing between
+        it and any camera that can see the map, so raycasting the terrain every
+        frame to confirm that would be work with a known answer.
+      */}
+      {focused && picked >= 0 && (
+        <Html
+          position={[centres[picked][0], 1.15, centres[picked][1]]}
+          center
+          zIndexRange={[8, 0]}
+        >
+          <div className="country" aria-hidden="true">
+            {COUNTRIES[picked].name}
+          </div>
+        </Html>
+      )}
+
+      {/*
+        And the same fact, spoken. The visual label is aria-hidden because it is
+        rendered into a portal outside the document order that describes this
+        scene; this live region is inside it and is what a screen reader
+        actually announces.
+      */}
+      <Html position={[0, 0, 0]} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>
+        <p className="sr-only" aria-live="polite">
+          {focused && picked >= 0 ? `${COUNTRIES[picked].name} selected.` : ''}
+        </p>
+      </Html>
 
       {/* Hedge frame, squared off to match the projection. */}
       <mesh geometry={HEDGE_LONG} position={[0, 0.36, -(MAP_D / 2 + 0.8)]} material={mat.hedge} />

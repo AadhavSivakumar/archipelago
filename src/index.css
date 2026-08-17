@@ -348,6 +348,30 @@ canvas {
 }
 
 /*
+  The chosen country's name, floating over the country itself.
+
+  Deliberately unlike .marker: that one is a control and looks pressable, this
+  one is a caption on something the visitor already clicked. Smaller, quieter,
+  no border in an accent colour, and pointer-events off so it can never sit
+  between the pointer and the map — a label that blocks clicks on the country
+  beneath it makes the country next to it hard to reach.
+*/
+.country {
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  color: #0b1020;
+  pointer-events: none;
+  user-select: none;
+  background: rgba(255, 225, 150, 0.94);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/*
   The CSS half of the reduced-motion path; the scene's half lives in
   animations/gsap.ts. Hover transforms and colour transitions are small, but
   they are motion the visitor did not ask for.

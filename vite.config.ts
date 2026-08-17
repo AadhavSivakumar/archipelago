@@ -58,6 +58,14 @@ export default defineConfig({
               name: 'postprocessing',
               test: /node_modules[\\/](postprocessing|@react-three[\\/]postprocessing)[\\/]/,
             },
+            /*
+              The world's countries are 73kB of coordinate literals that change
+              only when the map is re-baked from Natural Earth — which is to say
+              essentially never, and certainly not on the same cadence as the
+              scene they are drawn in. Left in the app chunk they were re-sent in
+              full on every deploy, for about 23kB gzipped a time.
+            */
+            { name: 'worldmap', test: /src[\\/]scene[\\/]worldCountries\.ts$/ },
           ],
         },
       },

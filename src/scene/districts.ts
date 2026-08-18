@@ -205,12 +205,17 @@ export function districtView(d: District, scale = 1) {
 
       Close enough that the map IS the screen.
 
-      The plate is 13.7 by 7.4 including its kerb. At the base 42-degree
-      vertical fov on 16:9 the horizontal half-field is 0.633 units per unit of
-      distance, so 12 units out gives a half-width of 7.6 against the plate's
-      6.85 — the map covers about 90 per cent of the frame's width and 80 per
-      cent of its height, with just enough air left that the kerb is not cropped
-      on a slightly different aspect.
+      At the base 42-degree vertical fov on 16:9 the horizontal half-field is
+      0.633 units per unit of distance, so 10 units out gives a half-width of
+      6.33 — against the map FACE's half-width of 6.30. The projection therefore
+      fills the frame edge to edge, and the stone kerb and the hedge around it
+      fall outside on a 16:9 viewport. That is the right thing to lose: they are
+      the garden the map sits in, and at this distance the map is the subject.
+      The 12 units this used to sit at left about a tenth of the width to them.
+
+      Vertically there is more room than needed — the face is 6.3 deep against a
+      7.7-unit field — which is the margin the 15-degree tilt eats, and what
+      keeps the far edge of the projection on screen rather than cropped.
 
       This used to stand off at 22 to keep the map clear of the fixed side
       panel. The panel now slides away when the camera comes down here, so there
@@ -220,7 +225,7 @@ export function districtView(d: District, scale = 1) {
       cropping the Pacific.
     */
     return {
-      position: { x: d.x, y: d.pad + 12 * scale, z: d.z + 3.2 * scale },
+      position: { x: d.x, y: d.pad + 9.8 * scale, z: d.z + 2.6 * scale },
       target: { x: d.x, y: d.pad, z: d.z },
     }
   }

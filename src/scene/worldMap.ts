@@ -18,8 +18,18 @@ export const MAP_SCALE = 0.035
 export const MAP_W = 360 * MAP_SCALE
 export const MAP_D = 180 * MAP_SCALE
 
-/** How far each country stands proud of the sea face. */
-const RELIEF = 0.22
+/**
+ * How far each country stands proud of the sea face.
+ *
+ * Cut from 0.22, and this is a texture fix rather than a modelling one. The
+ * extrusion's side walls are unlit compared with its top, so every coastline
+ * carries a dark fringe as wide as the wall projects — and seen 15 degrees off
+ * vertical, 0.22 projects to six pixels. Around a coastline made of tens of
+ * thousands of small features that is not an edge, it is a texture, and it was
+ * a substantial part of what read as the land being noisy. At 0.09 the fringe
+ * is two pixels: enough to say the land is raised, not enough to draw.
+ */
+const RELIEF = 0.09
 
 /**
  * Which country the pointer is over, and which one is chosen.
@@ -327,25 +337,26 @@ export function landMaterial() {
     on the thin coastal detail the outlines exist for.
   */
   /*
-    Soft and large, not fine and strong — and the reasoning is worth keeping,
-    because the obvious fix here is the wrong one.
+    Third attempt at this surface, and the direction has now been wrong twice in
+    both directions, so it is worth writing down what the constraint actually is.
 
-    The complaint about this surface was that it looked blocky, and the instinct
-    is to raise the frequency until the blocks are too small to see. That cannot
-    work. The noise in surface.ts is a value lattice, and surface.ts quite
-    correctly fades it out as the cells approach pixel size, so there is a floor
-    of roughly three pixels per cell below which there is simply nothing left to
-    draw. Chasing finer detail walks straight into that floor and lands on a
-    material with no texture at all.
+    Too coarse and it reads as blocks; too fine and surface.ts's footprint fade
+    removes it entirely. But the real trap is that neither of those was the
+    complaint the third time. A map's land is not a photograph of grass — it is
+    a FILL, and every mark on it that is not a coastline or a border is noise in
+    the information sense as well as the visual one. What kept looking bad was
+    not the scale of the texture but the fact that there was a texture at all,
+    competing with the only two things on the plate that carry meaning.
 
-    What actually reads as blocky is contrast, not scale: a lattice cell is only
-    visible as a cell when its value differs sharply from its neighbours. Ten
-    pixels per cell at a sixth of the previous amplitude gives a surface that
-    varies the way a lawn varies — enough that the light finds something, not
-    enough that the eye can find the grid. The rest of the map's detail now
-    comes from the coastlines, which is where it belongs.
+    So: nearly flat. A twentieth of a stop of variation at eight pixels a
+    feature, and a bump low enough that it catches the light without ever
+    reading as relief. Enough that the surface is not dead plastic under a
+    moving sun; not enough to see unless looked for. The per-country tint baked
+    into the vertex colours does the work of distinguishing one country from
+    the next, and it does it with flat fields, which is how maps have always
+    done it.
   */
-  weather(material, { grain: 9, mottle: 0.15, bump: 0.32, rough: 0.1 })
+  weather(material, { grain: 13, mottle: 0.03, bump: 0.06, rough: 0.03 })
 
   // After weather(), which sets its own. This material's shader is not the
   // shared weathered one — it carries the highlight too — so it must not share

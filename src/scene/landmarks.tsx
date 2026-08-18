@@ -595,7 +595,51 @@ const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.05, 0.026)
   supporting it. A graticule wants to be read when looked for and ignored
   otherwise, which means it has to be darker than the water, not lighter.
 */
-const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7 }, DRESSED)
+const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7 }, { grain: 20, mottle: 0.08, bump: 0.16, rough: 0.06 })
+
+/*
+  The Garden gets its own stone, hedge and brass, finer than the shared ones.
+
+  Every other district is looked at from about forty units. This one is now
+  looked at from ten, which magnifies every surface four times — and the shared
+  weathering was tuned at the far distance. QUARRIED puts a noise feature across
+  a fifth of a world unit, which is a comfortable four pixels on a lighthouse
+  and twenty-two on a kerb seen from here: the same setting that reads as
+  hewn stone at range reads as television static up close. The brass was worse,
+  because METAL's roughness jitter is what makes a metal glint at distance and
+  what makes it look corroded when each patch of it is twenty pixels wide.
+
+  So: the same materials at three to four times the frequency and a third of the
+  amplitude. The features land at five to eight pixels rather than twenty-plus,
+  which is the size at which the eye reads a surface rather than a pattern.
+*/
+const GARDEN_STONE = std({ color: '#9d9a92', roughness: 0.88 }, { grain: 18, mottle: 0.055, bump: 0.11, rough: 0.04 })
+const GARDEN_MARBLE = std({ color: '#dcd6cb', roughness: 0.42 }, { grain: 22, mottle: 0.04, bump: 0.07, rough: 0.03 })
+/* The hedge keeps most of its grain: it is the one surface here that is
+   supposed to look organic, and it sits outside the projection where it cannot
+   compete with anything that carries information. */
+const GARDEN_HEDGE = std({ color: '#33603a', roughness: 0.94 }, { grain: 14, mottle: 0.15, bump: 0.28, rough: 0.08 })
+/* Effectively clean. The equator and prime meridian are 0.1 units wide, about
+   eleven pixels from here, so ANY noise on them lands as glitter rather than as
+   patina — there is no room across the bar for a second feature. */
+const GARDEN_BRASS = std(
+  /*
+    Less metal, and rougher, than the brass everywhere else — because the
+    patchiness on these bars was never the weathering.
+
+    A metal has almost no diffuse response: what it shows is a reflection of its
+    surroundings, and the surroundings here are a 256-pixel environment built
+    from four Lightformers. Across a lighthouse rail at forty units that reads
+    as highlights. Across an eleven-pixel-wide bar at ten units it reads as
+    blotches, because the bar is sampling two or three texels of a very
+    low-resolution probe and nothing smooths between them. Halving the metalness
+    and raising the roughness brings back enough diffuse response, and widens
+    the specular lobe enough, that the bar shows its own colour and a gradient
+    rather than the environment's pixels.
+  */
+  { color: '#a5893f', roughness: 0.52, metalness: 0.45 },
+  { grain: 24, mottle: 0.02, bump: 0.03, rough: 0.02 },
+)
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
 const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
 
@@ -646,8 +690,18 @@ const PLINTH_BASE = new THREE.CylinderGeometry(2.4, 2.8, 0.7, 144)
   the same sea seen from a viewpoint that flatters it far less.
 */
 const MAP_SEA_MAT = water(
-  new THREE.MeshStandardMaterial({ color: '#1b5b85', roughness: 0.3, metalness: 0.45 }),
-  { chopScale: 2.6, chopStrength: 2.6 },
+  /*
+    chopScale 6, up from 2.6, and metalness down for the same reason as the
+    brass above.
+
+    2.6 was set when this view stood off at 22 units. At 10 the same ripple is
+    magnified: its coarsest component has a 2.2-unit wavelength, which is 244
+    pixels of slow light-and-dark across the Pacific — smudges rather than
+    water. At 6 the coarsest lands near 100 pixels and the finest near 15, which
+    is the range that reads as a surface being disturbed.
+  */
+  new THREE.MeshStandardMaterial({ color: '#1b5b85', roughness: 0.38, metalness: 0.3 }),
+  { chopScale: 6, chopStrength: 2.2 },
 )
 
 /*
@@ -732,7 +786,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
       }}
     >
       {/* The plate: a stone kerb, the sea face inset into it. */}
-      <mesh geometry={MAP_PLATE} position={[0, 0.21, 0]} material={mat.stone} />
+      <mesh geometry={MAP_PLATE} position={[0, 0.21, 0]} material={GARDEN_STONE} />
       <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
 
       {/* Graticule, ruled across the sea face. */}
@@ -746,8 +800,8 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
           <Instance key={i} position={[0, 0.5, z]} />
         ))}
       </Instances>
-      <mesh geometry={EQUATOR} position={[0, 0.52, 0]} material={mat.brass} />
-      <mesh geometry={PRIME} position={[0, 0.52, 0]} material={mat.brass} />
+      <mesh geometry={EQUATOR} position={[0, 0.52, 0]} material={GARDEN_BRASS} />
+      <mesh geometry={PRIME} position={[0, 0.52, 0]} material={GARDEN_BRASS} />
 
       {/*
         The countries.
@@ -818,16 +872,16 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
       </Html>
 
       {/* Hedge frame, squared off to match the projection. */}
-      <mesh geometry={HEDGE_LONG} position={[0, 0.36, -(MAP_D / 2 + 0.8)]} material={mat.hedge} />
-      <mesh geometry={HEDGE_LONG} position={[0, 0.36, MAP_D / 2 + 0.8]} material={mat.hedge} />
-      <mesh geometry={HEDGE_SHORT} position={[-(MAP_W / 2 + 0.8), 0.36, 0]} material={mat.hedge} />
-      <mesh geometry={HEDGE_SHORT} position={[MAP_W / 2 + 0.8, 0.36, 0]} material={mat.hedge} />
+      <mesh geometry={HEDGE_LONG} position={[0, 0.36, -(MAP_D / 2 + 0.8)]} material={GARDEN_HEDGE} />
+      <mesh geometry={HEDGE_LONG} position={[0, 0.36, MAP_D / 2 + 0.8]} material={GARDEN_HEDGE} />
+      <mesh geometry={HEDGE_SHORT} position={[-(MAP_W / 2 + 0.8), 0.36, 0]} material={GARDEN_HEDGE} />
+      <mesh geometry={HEDGE_SHORT} position={[MAP_W / 2 + 0.8, 0.36, 0]} material={GARDEN_HEDGE} />
 
       {/* A reading plinth at the map's near edge, where a globe used to stand.
           Kept inside radius 8 so it stands on flat ground like the plate. */}
       <group position={[0, 0, MAP_D / 2 + 2.3]}>
-        <mesh geometry={PLINTH_BASE} scale={[0.62, 0.8, 0.62]} position={[0, 0.28, 0]} material={mat.stone} />
-        <mesh geometry={PLINTH_TOP} scale={[0.62, 0.7, 0.62]} position={[0, 1.15, 0]} material={mat.marble} />
+        <mesh geometry={PLINTH_BASE} scale={[0.62, 0.8, 0.62]} position={[0, 0.28, 0]} material={GARDEN_STONE} />
+        <mesh geometry={PLINTH_TOP} scale={[0.62, 0.7, 0.62]} position={[0, 1.15, 0]} material={GARDEN_MARBLE} />
         <mesh geometry={MAP_FACE} scale={[0.19, 1, 0.19]} rotation={[-0.5, 0, 0]} position={[0, 1.7, 0]} material={ACCENT.geography} />
       </group>
 

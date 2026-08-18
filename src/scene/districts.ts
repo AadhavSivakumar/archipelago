@@ -223,9 +223,22 @@ export function districtView(d: District, scale = 1) {
 
       Scaled like every other view, so a narrow viewport pulls back rather than
       cropping the Pacific.
+
+      The tilt is 6 degrees off vertical, down from 15. A map read at an angle
+      is a picture of a slab: the graticule stops being square, the far half of
+      the projection draws smaller than the near half, and a country in the
+      north is rendered at a different scale from its neighbour in the south —
+      for a diagram whose whole claim is to be an equirectangular projection,
+      that is the one distortion worth avoiding. Six degrees still gives the
+      plate enough parallax to read as an object with thickness rather than a
+      flat image.
+
+      It cannot be zero: with the view direction parallel to the camera's up
+      vector the look-at basis is degenerate and OrbitControls has no defined
+      azimuth to hold.
     */
     return {
-      position: { x: d.x, y: d.pad + 9.8 * scale, z: d.z + 2.6 * scale },
+      position: { x: d.x, y: d.pad + 9.95 * scale, z: d.z + 1.05 * scale },
       target: { x: d.x, y: d.pad, z: d.z },
     }
   }

@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, prefersReducedMotion, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtView, type DistrictId } from './districts'
+import type { SubFocus } from './landmarks'
 import { fovForAspect, frameScale } from './framing'
 
 /** The subset of OrbitControls this rig touches. */
@@ -41,8 +42,43 @@ function homeView(scale: number) {
  */
 const START = { x: 0, y: 120, z: 400 }
 
-function viewFor(id: DistrictId, scale: number) {
-  return districtView(DISTRICTS.find((x) => x.id === id)!, scale)
+function viewFor(id: DistrictId, scale: number, sub?: SubFocus | null) {
+  const d = DISTRICTS.find((x) => x.id === id)!
+  const base = districtView(d, scale)
+  if (!sub) return base
+
+  /*
+    Frame one country rather than the whole projection.
+
+    The distance is solved rather than picked: the horizontal half-field is
+    0.633 units per unit of distance at the base fov and the vertical is
+    tan(21deg), so the distance that just contains a half-extent is that extent
+    divided by the relevant one, and the country is framed by whichever of the
+    two binds. A fifth of margin keeps its coastline off the frame edge.
+
+    Clamped at both ends, and both ends matter. Below about 1.6 units the near
+    plane and the plate's own thickness start to intrude, and Vatican City would
+    otherwise ask for a few centimetres. Above the district's own distance there
+    is no point going: that view already contains the whole world, so a country
+    large enough to need more than it — Russia — simply gets it.
+  */
+  const spanDistance = Math.max(sub.spanX / 0.633, sub.spanZ / Math.tan((21 * Math.PI) / 180))
+  const distance = Math.min(Math.max(spanDistance * 1.2, 1.6), 9.95)
+
+  /*
+    The same 6-degree tilt the district view uses, so choosing a country changes
+    the framing without also changing the angle it is read at — the map should
+    appear to be approached, not tipped.
+  */
+  const tilt = Math.tan((6 * Math.PI) / 180)
+  return {
+    position: {
+      x: base.target.x + sub.x,
+      y: base.target.y + distance,
+      z: base.target.z + sub.z + distance * tilt,
+    },
+    target: { x: base.target.x + sub.x, y: base.target.y, z: base.target.z + sub.z },
+  }
 }
 
 /**
@@ -69,6 +105,11 @@ function viewFor(id: DistrictId, scale: number) {
 type RigProps = {
   focus: DistrictId | null
   /**
+   * A place within the focused district to fly down to, or null for the
+   * district's own framing. Set when a country on the world map is chosen.
+   */
+  subFocus?: SubFocus | null
+  /**
    * Raised while a flight is airborne. The idle auto-orbit has to be off during
    * one: three's OrbitControls.update() applies autoRotate without checking
    * `enabled`, and this rig calls update() on every tween tick, so a live
@@ -77,7 +118,7 @@ type RigProps = {
   onFlyingChange?: (flying: boolean) => void
 }
 
-export function CameraRig({ focus, onFlyingChange }: RigProps) {
+export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
   const camera = useThree((s) => s.camera)
   const controls = useThree((s) => s.controls) as Controls | null
   const size = useThree((s) => s.size)
@@ -187,7 +228,7 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
     if (!controls) return
 
     const scale = frameScale(aspect)
-    const view = focus ? viewFor(focus, scale) : homeView(scale)
+    const view = focus ? viewFor(focus, scale, subFocus) : homeView(scale)
     const intro = firstRun.current
     firstRun.current = false
 
@@ -336,7 +377,7 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
     // effect above. Including it would re-fly the camera on every resize and on
     // every phone rotation. If a hooks linter ever lands, this is a considered
     // exception, not an oversight.
-  }, [focus, controls, camera, onFlyingChange])
+  }, [focus, subFocus, controls, camera, onFlyingChange])
 
   return null
 }

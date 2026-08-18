@@ -9,6 +9,8 @@ import { weather, type WeatherOptions } from './surface'
 import { water } from '../shaders/water'
 import { COUNTRIES } from './worldCountries'
 import {
+  BORDER_LIFT,
+  BORDER_MATERIAL,
   coarseMap,
   countryAt,
   landMaterial,
@@ -118,7 +120,21 @@ export type LandmarkProps = {
    * handler would swallow.
    */
   focused: boolean
+  /**
+   * Reports what the camera should frame within this district, or null for the
+   * district as a whole.
+   *
+   * Only the Geographical Garden raises it, when a country is chosen: the
+   * camera then flies down to that country rather than staying on the whole
+   * projection. Threaded through LandmarkProps rather than special-cased in
+   * DistrictLayer because the alternative is DistrictLayer knowing which
+   * district has countries in it.
+   */
+  onSubFocus?: (view: SubFocus | null) => void
 }
+
+/** A place within a district worth flying to, in district-local units. */
+export type SubFocus = { x: number; z: number; spanX: number; spanZ: number }
 
 // ---------------------------------------------------------------------------
 // Placement helpers
@@ -711,7 +727,7 @@ const MAP_SEA_MAT = water(
 */
 let landMat: THREE.MeshStandardMaterial | null = null
 
-export function GeographicalGarden({ d, focused }: LandmarkProps) {
+export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
   const material = useMemo(() => (landMat ??= landMaterial()), [])
 
@@ -727,7 +743,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
   */
   const [fine, setFine] = useState<WorldMap | null>(null)
   const map = fine ?? coarseMap()
-  const { geometry: countryGeometry, centres } = map
+  const { geometry: countryGeometry, centres, spans, borders } = map
 
   useEffect(() => {
     if (!focused || fine) return
@@ -757,7 +773,23 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
     setPicked(-1)
     uPickedCountry.value = -1
     uHoverCountry.value = -1
-  }, [focused])
+    onSubFocus?.(null)
+  }, [focused, onSubFocus])
+
+  /*
+    Choosing a country, in one place, so the highlight uniform, the label state
+    and the camera can never disagree about which one it is. Passing -1 is how
+    everything says "none".
+  */
+  const choose = (id: number) => {
+    setPicked(id)
+    uPickedCountry.value = id
+    onSubFocus?.(
+      id < 0
+        ? null
+        : { x: centres[id][0], z: centres[id][1], spanX: spans[id][0], spanZ: spans[id][1] },
+    )
+  }
 
   return (
     /*
@@ -781,8 +813,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
       onClick={(e) => {
         if (!focused) return
         e.stopPropagation()
-        setPicked(-1)
-        uPickedCountry.value = -1
+        choose(-1)
       }}
     >
       {/* The plate: a stone kerb, the sea face inset into it. */}
@@ -832,10 +863,44 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
           e.stopPropagation()
           // Clicking the chosen country again clears it, so there is a way back
           // to no selection that is not "pick something else".
-          const next = id === picked ? -1 : id
-          setPicked(next)
-          uPickedCountry.value = next
+          choose(id === picked ? -1 : id)
         }}
+      />
+
+      {/*
+        Borders, over the land they divide.
+
+        Drawn after the land so the depth test has something to sit on, and
+        lifted a thousandth of a unit clear of it so the two are not coplanar —
+        see BORDER_LIFT. They are what turns 242 flat green fields into a
+        political map: without them the per-country tint alone is only a hint
+        that the fields are separate, and picking one is a guess about where it
+        ends.
+      */}
+      <lineSegments
+        geometry={borders}
+        material={BORDER_MATERIAL}
+        position={[0, 0.51 + BORDER_LIFT, 0]}
+        /*
+          Invisible to the raycaster, and this is load-bearing rather than an
+          optimisation.
+
+          A line has no area, so three cannot test a ray against it exactly and
+          instead uses Raycaster.params.Line.threshold — a radius, in WORLD
+          units, defaulting to 1. This map is 12.6 units across. Every border on
+          it is therefore "hit" by any ray passing within a unit of it, which
+          over a political map means very nearly every ray; and because these
+          lines sit a thousandth of a unit above the land, they were hit FIRST.
+          Their nearest handler-carrying ancestor is the group that treats a
+          click as "not a country", so every click on every country cleared the
+          selection instead of making one, and country picking stopped working
+          entirely.
+
+          Lowering the global threshold would fix the symptom and leave a
+          scene-wide constant tuned for one mesh. Borders are notation; nothing
+          should ever be able to click one.
+        */
+        raycast={() => null}
       />
 
       {/*

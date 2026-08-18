@@ -420,6 +420,52 @@ canvas {
 }
 
 /*
+  The way back, while the panel is off-screen.
+
+  Sits where the panel's own controls were, so the exit does not move when the
+  panel leaves. Styled as chrome rather than as part of the scene — the map
+  behind it is the subject and this is the frame around it.
+*/
+.escape {
+  position: fixed;
+  top: 22px;
+  left: 22px;
+  z-index: 11;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 18px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  cursor: pointer;
+  background: rgba(8, 14, 24, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  /* Matches the panel's own entrance, so the two do not cross-fade at
+     different speeds when the map takes over. */
+  animation: panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.2s backwards;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.escape:hover,
+.escape:focus-visible {
+  background: rgba(18, 28, 44, 0.92);
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .escape {
+    animation: none;
+  }
+}
+
+/*
   The chosen country's name, floating over the country itself.
 
   Deliberately unlike .marker: that one is a control and looks pressable, this

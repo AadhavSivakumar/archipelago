@@ -19,6 +19,7 @@ import { frameScale } from './framing'
 import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
+import type { SubFocus } from './landmarks'
 
 /**
  * Shared by the sky shader and the shadow-casting sun so they agree.
@@ -43,6 +44,15 @@ type Props = {
    * scene has already answered for its own level-of-detail switch.
    */
   onImmersive: (immersive: boolean) => void
+  /**
+   * Put the whole world back regardless of where the camera is.
+   *
+   * Raised for the two frames between the visitor asking to leave the map and
+   * focus actually clearing, so that the retreat flies out through a scene that
+   * is already there rather than one that materialises around it. See the note
+   * in App.
+   */
+  forceWorld: boolean
 }
 
 /**
@@ -315,13 +325,26 @@ function MapDetail({ active, onChange }: { active: boolean; onChange: (low: bool
   return null
 }
 
-export function Scene({ focus, onFocus, onImmersive }: Props) {
+export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
   /*
     True while the camera is down among the Geographical Garden's map. Drives
     every level-of-detail decision in this file: the coarse island, the dropped
     ambient layer, and the other five districts going unrendered.
   */
-  const [mapDetail, setMapDetail] = useState(false)
+  const [mapDetailRaw, setMapDetail] = useState(false)
+  const mapDetail = mapDetailRaw && !forceWorld
+
+  /*
+    Where inside the focused district the camera should be looking, if anywhere
+    more specific than the district itself. Only the world map raises it, when a
+    country is chosen.
+
+    Held here rather than inside the Garden because the camera is not the
+    Garden's to move: CameraRig is the single writer of camera.position, and the
+    whole point of that rule is that no component gets to make an exception for
+    itself.
+  */
+  const [subFocus, setSubFocus] = useState<SubFocus | null>(null)
   // Held here so the labels can occlude against the landmass they sit on. This
   // is the coarse proxy, not the display mesh — see islandOccluderGeometry.
   const occluder = useRef<THREE.Mesh>(null!)
@@ -484,6 +507,7 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
             districts' worth of small draw calls are issued to render nothing.
           */
           soloDistrict={mapDetail ? focus : null}
+          onSubFocus={setSubFocus}
         />
       </Suspense>
 
@@ -525,7 +549,7 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
 
       <AdaptiveDpr pinned={mapDetail} />
       <IdleOrbit active={idle && focus === null && !flying} />
-      <CameraRig focus={focus} onFlyingChange={setFlying} />
+      <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />
       <OrbitControls
         makeDefault
         enablePan={false}
@@ -547,6 +571,18 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
           is then something the visitor chooses.
         */
         minDistance={focus === 'geography' ? 5 : 18}
+        /*
+          The wheel is dead on the world map.
+
+          Not to protect the framing, but because there is somewhere better for
+          the gesture to go: on this district coming closer means choosing a
+          country, and clicking one flies the camera down to frame it. A free
+          zoom alongside that is a second way to do the same thing which lands
+          wherever the pointer happened to be — including under the plate or out
+          past the hedge, neither of which is a view of anything. Orbit is
+          untouched.
+        */
+        enableZoom={focus !== 'geography'}
         // Home is ~126 units out and framing.ts pulls back up to 2x on a portrait
         // phone, so the ceiling has to clear 252.
         maxDistance={320}

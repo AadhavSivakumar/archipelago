@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { DistrictDossier } from './components/DistrictDossier'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -31,15 +31,58 @@ export function App() {
   */
   const [immersive, setImmersive] = useState(false)
 
+  /*
+    Leaving the map happens in two steps, and the order is the whole point.
+
+    Down among the world map the island, the ocean, the sky and five of six
+    districts are not being drawn. Clearing focus in one go asks the camera to
+    start flying back out into a world that is, on that same frame, still
+    absent — so the first half second of the retreat is a plate over an empty
+    sky, and everything reappears at once partway through. It reads as a glitch
+    even though nothing is wrong.
+
+    So: raise this flag, which puts the whole scene back with the camera still
+    parked over the map, and only clear focus once it has actually been drawn.
+    Two animation frames, not one — the first is the React commit that unhides
+    everything, the second is the first frame R3F renders with it all present.
+    By the time the camera moves there is a world to move through.
+  */
+  const [leavingMap, setLeavingMap] = useState(false)
+
+  const leaveDistrict = useCallback(() => {
+    if (!immersive) {
+      setFocus(null)
+      return
+    }
+    setLeavingMap(true)
+    requestAnimationFrame(() => requestAnimationFrame(() => setFocus(null)))
+  }, [immersive, setFocus])
+
+  /*
+    The flag is cleared by the scene, not by the timer that set it.
+
+    Clearing it after the same two frames would have been the obvious thing and
+    is wrong: `immersive` is raised and lowered from inside the render loop, and
+    it does not fall on the frame focus changes — it falls once the camera has
+    actually climbed back out past the level-of-detail threshold. Clearing early
+    therefore leaves a window where the flag is down and `immersive` is still
+    up, which reads as `is-away` again, and the panel slides out, back, and out
+    once more in under a second. Letting the scene end the state it started
+    keeps the panel's return monotonic.
+  */
+  useEffect(() => {
+    if (!immersive) setLeavingMap(false)
+  }, [immersive])
+
   // Escape leaves a district from anywhere. The reset button was the only way
   // out, and on a phone it sits below the panel's 46dvh fold.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFocus(null)
+      if (e.key === 'Escape') leaveDistrict()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setFocus])
+  }, [leaveDistrict])
 
   const focused = DISTRICTS.find((d) => d.id === focus)
 
@@ -54,12 +97,12 @@ export function App() {
         in-flow child of #root, so this reorder costs nothing visually.
       */}
       <header
-        className={`panel${panelOpen ? ' is-open' : ''}${immersive ? ' is-away' : ''}`}
+        className={`panel${panelOpen ? ' is-open' : ''}${immersive && !leavingMap ? ' is-away' : ''}`}
         // Hidden from assistive tech as well as from view while it is off-screen
         // — a translated element is still in the accessibility tree, and a
         // screen reader would otherwise offer six controls the visitor cannot
         // see and a tab stop that scrolls the page sideways to reach.
-        inert={immersive || undefined}
+        inert={(immersive && !leavingMap) || undefined}
       >
         <button
           type="button"
@@ -105,12 +148,31 @@ export function App() {
         <button
           type="button"
           className="reset"
-          onClick={() => setFocus(null)}
+          onClick={leaveDistrict}
           disabled={focus === null}
         >
           Back to the whole archipelago
         </button>
       </header>
+
+      {/*
+        The way out, while the panel that normally holds it is off-screen.
+
+        The panel slides away so the map can have the window, which also takes
+        the "Back to the whole archipelago" button with it — leaving Escape as
+        the only exit, which is not an affordance anyone can see. This is the
+        same action in the one place it is still needed, and it disappears again
+        the moment the panel returns.
+
+        Rendered outside the panel rather than inside it because it has to
+        outlive the panel's `inert`: an inert subtree cannot be clicked, so a
+        back button in there would be visible and dead.
+      */}
+      {immersive && !leavingMap && (
+        <button type="button" className="escape" onClick={leaveDistrict}>
+          <span aria-hidden="true">←</span> Back
+        </button>
+      )}
 
       {/*
         The camera flight is the only feedback a sighted user gets on focus.
@@ -167,7 +229,12 @@ export function App() {
             gl={{ antialias: true }}
           >
             <Suspense fallback={null}>
-              <Scene focus={focus} onFocus={setFocus} onImmersive={setImmersive} />
+              <Scene
+              focus={focus}
+              onFocus={setFocus}
+              onImmersive={setImmersive}
+              forceWorld={leavingMap}
+            />
             </Suspense>
           </Canvas>
         </ErrorBoundary>

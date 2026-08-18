@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { COUNTRIES } from './worldCountries'
-import { weather } from './surface'
 
 /*
   Map space is degrees. MAP_SCALE converts to world units, so the plate is
@@ -17,6 +16,17 @@ import { weather } from './surface'
 export const MAP_SCALE = 0.035
 export const MAP_W = 360 * MAP_SCALE
 export const MAP_D = 180 * MAP_SCALE
+
+/**
+ * How far the border lines float above the land they outline.
+ *
+ * Coplanar geometry z-fights, and over a surface this large the fighting shows
+ * as the border flickering in and out along its length as the camera moves. A
+ * thousandth of a unit is far below anything visible at any zoom this scene
+ * allows, and comfortably past the depth buffer's resolution at these near and
+ * far planes.
+ */
+export const BORDER_LIFT = 0.001
 
 /**
  * How far each country stands proud of the sea face.
@@ -51,6 +61,17 @@ type Built = {
   faceCountry: Int32Array
   /** Label anchor for each country, in plate-local (x, z). */
   centres: [number, number][]
+  /**
+   * Half-extents of each country in plate-local units, as [halfX, halfZ].
+   *
+   * What the camera needs in order to frame one. Taken over ALL of a country's
+   * rings rather than just its largest, because framing Norway on its mainland
+   * alone would cut off Svalbard, and a visitor who clicked a country expects
+   * to be shown the country.
+   */
+  spans: [number, number][]
+  /** Country outlines as line segments, for the borders drawn over the land. */
+  borders: THREE.BufferGeometry
 }
 
 /** Deterministic LCG, so the map is identical on every load. */
@@ -82,6 +103,9 @@ function rng(seed: number) {
 function build(source: readonly (readonly (readonly number[])[])[]): Built {
   const parts: THREE.BufferGeometry[] = []
   const centres: [number, number][] = []
+  const spans: [number, number][] = []
+  /** Flat [x0,y0,z0, x1,y1,z1, ...] pairs for the border LineSegments. */
+  const edges: number[] = []
   let vertexTotal = 0
 
   for (const rings of source) {
@@ -169,6 +193,41 @@ function build(source: readonly (readonly (readonly number[])[])[]): Built {
     }
     // Same axis convention as the shapes above: world z is -latitude.
     centres.push([(cx / 10) * MAP_SCALE, -(cy / 10) * MAP_SCALE])
+
+    /*
+      Bounds over every ring, and the border segments, in one pass.
+
+      The borders are drawn as lines rather than baked into the land as a darker
+      rim, because a rim has to be a fixed width in WORLD units and would then
+      be four pixels across at one zoom and forty at another. A line is one
+      pixel at every zoom, which is what a border on a map is: a mark that says
+      where, not how wide.
+    */
+    let x0 = Infinity
+    let x1 = -Infinity
+    let z0 = Infinity
+    let z1 = -Infinity
+
+    for (const ring of rings) {
+      const n = ring.length / 2
+      for (let i = 0; i < n; i++) {
+        const ax = (ring[i * 2] / 10) * MAP_SCALE
+        const az = -(ring[i * 2 + 1] / 10) * MAP_SCALE
+        const j = (i + 1) % n
+        const bx = (ring[j * 2] / 10) * MAP_SCALE
+        const bz = -(ring[j * 2 + 1] / 10) * MAP_SCALE
+
+        if (ax < x0) x0 = ax
+        if (ax > x1) x1 = ax
+        if (az < z0) z0 = az
+        if (az > z1) z1 = az
+
+        // At the land's top face; BORDER_LIFT below floats it clear of it.
+        edges.push(ax, RELIEF, az, bx, RELIEF, bz)
+      }
+    }
+
+    spans.push([(x1 - x0) / 2, (z1 - z0) / 2])
   }
 
   const position = new Float32Array(vertexTotal * 3)
@@ -225,7 +284,11 @@ function build(source: readonly (readonly (readonly number[])[])[]): Built {
   const faceCountry = new Int32Array(vertexTotal / 3)
   for (let t = 0; t < faceCountry.length; t++) faceCountry[t] = aCountry[t * 3]
 
-  return { geometry, faceCountry, centres }
+  const borders = new THREE.BufferGeometry()
+  borders.setAttribute('position', new THREE.BufferAttribute(new Float32Array(edges), 3))
+  borders.computeBoundingSphere()
+
+  return { geometry, faceCountry, centres, spans, borders }
 }
 
 let coarse: Built | null = null
@@ -337,26 +400,22 @@ export function landMaterial() {
     on the thin coastal detail the outlines exist for.
   */
   /*
-    Third attempt at this surface, and the direction has now been wrong twice in
-    both directions, so it is worth writing down what the constraint actually is.
+    No weathering at all on the land, and that is the end of a long argument
+    with this surface.
 
-    Too coarse and it reads as blocks; too fine and surface.ts's footprint fade
-    removes it entirely. But the real trap is that neither of those was the
-    complaint the third time. A map's land is not a photograph of grass — it is
-    a FILL, and every mark on it that is not a coastline or a border is noise in
-    the information sense as well as the visual one. What kept looking bad was
-    not the scale of the texture but the fact that there was a texture at all,
-    competing with the only two things on the plate that carry meaning.
+    It was tuned coarse, then fine, then nearly flat, and each version was worse
+    than it sounded because the premise was wrong. A map's land is a FILL. Every
+    mark on it that is not a coastline or a border competes with the only two
+    things on the plate that carry meaning — which is exactly why making the
+    texture more detailed kept making the map look worse. The per-country tint
+    baked into the vertex colours distinguishes one country from the next using
+    flat fields, which is how maps have always done it, and the borders drawn
+    over the top do the rest.
 
-    So: nearly flat. A twentieth of a stop of variation at eight pixels a
-    feature, and a bump low enough that it catches the light without ever
-    reading as relief. Enough that the surface is not dead plastic under a
-    moving sun; not enough to see unless looked for. The per-country tint baked
-    into the vertex colours does the work of distinguishing one country from
-    the next, and it does it with flat fields, which is how maps have always
-    done it.
+    This also drops the four-octave noise and the screen-space derivatives from
+    the most-covered surface in the view, which is the cheapest fragment shader
+    this district has ever had.
   */
-  weather(material, { grain: 13, mottle: 0.03, bump: 0.06, rough: 0.03 })
 
   // After weather(), which sets its own. This material's shader is not the
   // shared weathered one — it carries the highlight too — so it must not share
@@ -364,3 +423,22 @@ export function landMaterial() {
   material.customProgramCacheKey = () => 'weathered-countries'
   return material
 }
+
+/**
+ * The line the borders are drawn with.
+ *
+ * LineBasicMaterial's `linewidth` is ignored by every WebGL implementation —
+ * the spec allows only 1.0 — and that is the right answer here anyway. One
+ * device pixel is a hairline on a 2x display and stays a hairline however far
+ * the camera comes in, which is what a border on a map should do. Drawing them
+ * as thick geometry instead would mean choosing a world width, and a world
+ * width is wrong at every zoom except the one it was chosen for.
+ *
+ * Unlit on purpose: a border is a notation, not a thing in the scene, and a
+ * border that dims as the sun moves off it reads as a scratch.
+ */
+export const BORDER_MATERIAL = new THREE.LineBasicMaterial({
+  color: '#2b4a34',
+  transparent: true,
+  opacity: 0.55,
+})

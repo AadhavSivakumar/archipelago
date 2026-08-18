@@ -4,7 +4,7 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtPosition, type DistrictId } from './districts'
-import { LANDMARKS } from './landmarks'
+import { LANDMARKS, type SubFocus } from './landmarks'
 import { setCursor } from './cursor'
 
 type Props = {
@@ -19,6 +19,8 @@ type Props = {
    * the Geographical Garden's map, where the others are all off-frame.
    */
   soloDistrict: DistrictId | null
+  /** Raised by a district that has somewhere within it worth flying to. */
+  onSubFocus: (view: SubFocus | null) => void
 }
 
 /**
@@ -50,7 +52,14 @@ const LABEL_HEIGHT: Record<DistrictId, number> = {
   anthropology: 14,
 }
 
-export function Districts({ focus, onFocus, occluders, deepLinked, soloDistrict }: Props) {
+export function Districts({
+  focus,
+  onFocus,
+  occluders,
+  deepLinked,
+  soloDistrict,
+  onSubFocus,
+}: Props) {
   const root = useRef<THREE.Group>(null!)
   const animated = useRef<THREE.Group[]>([])
   const gl = useThree((s) => s.gl)
@@ -169,7 +178,7 @@ export function Districts({ focus, onFocus, occluders, deepLinked, soloDistrict 
               }}
               onPointerOut={() => setCursor('')}
             >
-              <Landmark d={d} focused={focus === d.id} />
+              <Landmark d={d} focused={focus === d.id} onSubFocus={onSubFocus} />
 
             {/*
               `occlude` as a ref array raycasts against the landmass only —

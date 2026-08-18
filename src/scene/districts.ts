@@ -203,20 +203,24 @@ export function districtView(d: District, scale = 1) {
       Overhead, tilted 15 degrees off vertical — see the `framing` note above
       for why it cannot be 0.
 
-      Close enough that the map is the subject rather than an object on an
-      island. The plate is 14.3 by 7.2 including its kerb; at the base
-      42-degree vertical fov and 16:9, a camera 23 units out puts it about 600
-      pixels wide on a 1400-pixel viewport, centred, which leaves its western
-      edge clear of the fixed side panel by a small margin. Closer than that and
-      the Atlantic goes behind the panel on desktop.
+      Close enough that the map IS the screen.
 
-      The panel is only a concern above 720px, where it is a fixed left column;
-      below that it becomes a bottom sheet and the horizontal constraint goes
-      away — and narrow viewports are also where framing.ts widens the lens and
-      pulls back, which this is scaled by like every other view.
+      The plate is 13.7 by 7.4 including its kerb. At the base 42-degree
+      vertical fov on 16:9 the horizontal half-field is 0.633 units per unit of
+      distance, so 12 units out gives a half-width of 7.6 against the plate's
+      6.85 — the map covers about 90 per cent of the frame's width and 80 per
+      cent of its height, with just enough air left that the kerb is not cropped
+      on a slightly different aspect.
+
+      This used to stand off at 22 to keep the map clear of the fixed side
+      panel. The panel now slides away when the camera comes down here, so there
+      is nothing left to leave room for.
+
+      Scaled like every other view, so a narrow viewport pulls back rather than
+      cropping the Pacific.
     */
     return {
-      position: { x: d.x, y: d.pad + 22 * scale, z: d.z + 6 * scale },
+      position: { x: d.x, y: d.pad + 12 * scale, z: d.z + 3.2 * scale },
       target: { x: d.x, y: d.pad, z: d.z },
     }
   }

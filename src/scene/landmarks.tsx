@@ -9,14 +9,16 @@ import { weather, type WeatherOptions } from './surface'
 import { water } from '../shaders/water'
 import { COUNTRIES } from './worldCountries'
 import {
+  coarseMap,
   countryAt,
   landMaterial,
+  loadFineMap,
   MAP_D,
   MAP_SCALE,
   MAP_W,
   uHoverCountry,
   uPickedCountry,
-  worldMap,
+  type WorldMap,
 } from './worldMap'
 import { setCursor } from './cursor'
 
@@ -657,8 +659,32 @@ let landMat: THREE.MeshStandardMaterial | null = null
 
 export function GeographicalGarden({ d, focused }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
-  const { geometry: countryGeometry, centres } = useMemo(() => worldMap(), [])
   const material = useMemo(() => (landMat ??= landMaterial()), [])
+
+  /*
+    Two levels of map, and the swap is one-way per session.
+
+    The coarse one is in the bundle and is what the plate wears from the
+    archipelago view, where it is forty pixels wide. The detailed one is a
+    dynamic import started the moment this district is focused — the camera
+    flight takes long enough that it is normally in place before the map is
+    legible, and if it is not, the coarse one is what shows until it is. Nothing
+    pops except detail appearing.
+  */
+  const [fine, setFine] = useState<WorldMap | null>(null)
+  const map = fine ?? coarseMap()
+  const { geometry: countryGeometry, centres } = map
+
+  useEffect(() => {
+    if (!focused || fine) return
+    let live = true
+    loadFineMap().then((built) => {
+      if (live) setFine(built)
+    })
+    return () => {
+      live = false
+    }
+  }, [focused, fine])
 
   /*
     The chosen country is the one piece of this that React needs to know about,
@@ -739,7 +765,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
         onPointerMove={(e) => {
           if (!focused) return
           e.stopPropagation()
-          uHoverCountry.value = countryAt(e.faceIndex)
+          uHoverCountry.value = countryAt(map, e.faceIndex)
           setCursor('pointer')
         }}
         onPointerOut={() => {
@@ -747,7 +773,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
         }}
         onClick={(e) => {
           if (!focused) return
-          const id = countryAt(e.faceIndex)
+          const id = countryAt(map, e.faceIndex)
           if (id < 0) return
           e.stopPropagation()
           // Clicking the chosen country again clears it, so there is a way back

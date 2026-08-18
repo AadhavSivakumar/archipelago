@@ -119,6 +119,78 @@ canvas {
 }
 
 /*
+  The panel arrives a beat after the scene does.
+
+  index.html paints a gradient and a loading bar, React replaces it, and the
+  island then rises out of the sea over about two seconds. With the panel
+  appearing on the same frame as the canvas, the first thing the eye goes to is
+  a wall of text over an empty sea — the reveal it was built to introduce
+  happens in the visitor's peripheral vision.
+
+  0.5s of delay puts the fade after the first islands have broken the surface,
+  and 0.7s of ease means the panel is fully legible by the time the reveal
+  finishes. The forwards/backwards fill matters: backwards holds the opening
+  frame during the delay, without which the panel would flash at full opacity
+  before the animation started.
+*/
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.panel {
+  /*
+    `backwards`, emphatically not `both`.
+
+    A fill of `both` (or `forwards`) leaves the animation's final keyframe
+    applying for the rest of the document's life, and an applying animation beats
+    ordinary declarations in the cascade — so `.is-away` below set opacity 0 and
+    a translate that were silently overridden by the finished intro, and the
+    panel simply never moved. `backwards` holds the OPENING frame during the
+    0.5s delay, which is the only fill this actually needs: without it the panel
+    flashes at full opacity for those 500ms before the animation starts. Once
+    the animation ends it stops contributing, and the transition below takes
+    over the transform.
+  */
+  animation: panel-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.5s backwards;
+  transition:
+    transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 320ms ease;
+}
+
+/*
+  Slid out of the window while the world map is being read. Translated rather
+  than display:none so it animates, and far enough that the shadow clears the
+  edge too.
+*/
+.panel.is-away {
+  opacity: 0;
+  transform: translateX(-105%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+    transition: opacity 200ms ease;
+  }
+
+  /*
+    Still gets out of the way — the reason it moves is that it is covering the
+    subject, which is not a motion preference. It simply stops sliding.
+  */
+  .panel.is-away {
+    transform: none;
+    visibility: hidden;
+  }
+}
+
+/*
   Visually hidden, still announced. clip-path over the legacy clip rect: it is
   the current technique and does not force a stacking/layout quirk.
 */

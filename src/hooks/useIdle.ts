@@ -10,8 +10,14 @@ const ACTIVITY = ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'
  * `setIdle(false)` would queue a React render per event. The ref makes the
  * common case — already awake, moving the mouse — a timer reset and nothing
  * else.
+ *
+ * The default was 4200ms, which meant a visitor who paused to read the panel had
+ * usually moved again before the drift ever began — the scene's one piece of
+ * ambient life was mostly not happening. 2400 starts it inside a natural pause
+ * without firing between deliberate movements, and the two-and-a-half second
+ * ramp in Scene.tsx means an accidental trigger goes almost unnoticed.
  */
-export function useIdle(delay = 4200) {
+export function useIdle(delay = 2400) {
   const [idle, setIdle] = useState(false)
   const isIdle = useRef(false)
 

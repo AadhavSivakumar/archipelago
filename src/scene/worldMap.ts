@@ -69,13 +69,13 @@ function rng(seed: number) {
  * attribute set, which is the only thing that function would be checking, and
  * because the country attribute has to be filled in the same pass anyway.
  */
-function build(): Built {
+function build(source: readonly (readonly (readonly number[])[])[]): Built {
   const parts: THREE.BufferGeometry[] = []
   const centres: [number, number][] = []
   let vertexTotal = 0
 
-  for (const country of COUNTRIES) {
-    const shapes = country.rings.map((ring) => {
+  for (const rings of source) {
+    const shapes = rings.map((ring) => {
       const shape = new THREE.Shape()
       for (let i = 0; i < ring.length; i += 2) {
         const x = (ring[i] / 10) * MAP_SCALE
@@ -115,9 +115,9 @@ function build(): Built {
       genuinely horseshoe-shaped countries and right for the other hundred and
       seventy.
     */
-    let biggest = country.rings[0]
+    let biggest = rings[0]
     let biggestArea = -1
-    for (const ring of country.rings) {
+    for (const ring of rings) {
       let a = 0
       const n = ring.length / 2
       for (let i = 0, j = n - 1; i < n; j = i++) {
@@ -218,27 +218,55 @@ function build(): Built {
   return { geometry, faceCountry, centres }
 }
 
-let built: Built | null = null
+let coarse: Built | null = null
+let fine: Built | null = null
 
-/** Built once, lazily — nothing needs it until the Garden mounts. */
-export function worldMap(): Built {
-  built ??= build()
-  return built
+/**
+ * The map as it looks from anywhere but the Garden itself.
+ *
+ * Built once, lazily. 2,197 points is a few milliseconds, and it is what the
+ * plate wears at forty pixels across — where the difference between this and
+ * the detailed set is smaller than one pixel.
+ */
+export function coarseMap(): Built {
+  coarse ??= build(COUNTRIES.map((c) => c.rings))
+  return coarse
+}
+
+/**
+ * The detailed map, fetched and built on demand.
+ *
+ * Behind a dynamic import so its 288kB of coordinates never enters the initial
+ * bundle: a visitor who does not open the Garden does not download a coastline.
+ * Started when the district is focused, which is a second or two of camera
+ * flight before anyone can read the map, so in practice it has already landed.
+ *
+ * The build is the slower half — 24,050 points is eleven times the coarse set,
+ * extruded and merged on the main thread. Once per session, during a flight,
+ * which is the cheapest moment available short of moving it to a worker.
+ */
+export async function loadFineMap(): Promise<Built> {
+  if (fine) return fine
+  const module = await import('./worldCountriesFine')
+  fine ??= build(module.COUNTRIES_FINE)
+  return fine
 }
 
 /**
  * The country under a raycast hit, or -1.
  *
- * R3F types faceIndex as number | null | undefined — null for intersections
- * that carry no face, absent on some intersection kinds — so this takes the
- * widened type and answers -1 rather than making every call site repeat the
- * guard.
+ * Takes the map that was actually raycast. The two levels have different
+ * triangle counts, so reading a fine faceIndex against the coarse lookup would
+ * name a country essentially at random. R3F types faceIndex as
+ * number | null | undefined, so the guard lives here rather than at every call.
  */
-export function countryAt(faceIndex: number | null | undefined): number {
+export function countryAt(map: Built, faceIndex: number | null | undefined): number {
   if (faceIndex === null || faceIndex === undefined) return -1
-  const { faceCountry } = worldMap()
+  const { faceCountry } = map
   return faceIndex >= 0 && faceIndex < faceCountry.length ? faceCountry[faceIndex] : -1
 }
+
+export type WorldMap = Built
 
 const HIGHLIGHT_GLSL = /* glsl */ `
   varying float vCountry;
@@ -298,7 +326,26 @@ export function landMaterial() {
     per-fragment noise is itself what reads as pixelation, and it lands hardest
     on the thin coastal detail the outlines exist for.
   */
-  weather(material, { grain: 4, mottle: 0.16, bump: 0.35, rough: 0.12 })
+  /*
+    Soft and large, not fine and strong — and the reasoning is worth keeping,
+    because the obvious fix here is the wrong one.
+
+    The complaint about this surface was that it looked blocky, and the instinct
+    is to raise the frequency until the blocks are too small to see. That cannot
+    work. The noise in surface.ts is a value lattice, and surface.ts quite
+    correctly fades it out as the cells approach pixel size, so there is a floor
+    of roughly three pixels per cell below which there is simply nothing left to
+    draw. Chasing finer detail walks straight into that floor and lands on a
+    material with no texture at all.
+
+    What actually reads as blocky is contrast, not scale: a lattice cell is only
+    visible as a cell when its value differs sharply from its neighbours. Ten
+    pixels per cell at a sixth of the previous amplitude gives a surface that
+    varies the way a lawn varies — enough that the light finds something, not
+    enough that the eye can find the grid. The rest of the map's detail now
+    comes from the coastlines, which is where it belongs.
+  */
+  weather(material, { grain: 9, mottle: 0.15, bump: 0.32, rough: 0.1 })
 
   // After weather(), which sets its own. This material's shader is not the
   // shared weathered one — it carries the highlight too — so it must not share

@@ -17,6 +17,20 @@ export function App() {
   // desktop the toggle is display:none and the panel is always open.
   const [panelOpen, setPanelOpen] = useState(false)
 
+  /*
+    Set while the camera is down among the Geographical Garden's world map.
+
+    The map is meant to fill the screen there, and a fixed 370px column over its
+    western third is the one thing that stops it — Greenland and the Atlantic sat
+    behind the panel. Sliding it out is better than shrinking the framing to
+    avoid it: the visitor asked to look at the map, so the map gets the window.
+
+    It comes back the moment the camera pulls up, and every control it holds is
+    reachable in the meantime — Escape leaves the district, and the map's own
+    click handling covers the rest.
+  */
+  const [immersive, setImmersive] = useState(false)
+
   // Escape leaves a district from anywhere. The reset button was the only way
   // out, and on a phone it sits below the panel's 46dvh fold.
   useEffect(() => {
@@ -39,7 +53,14 @@ export function App() {
         scroll-into-view. The panel is position:fixed and the wrapper is the only
         in-flow child of #root, so this reorder costs nothing visually.
       */}
-      <header className={`panel${panelOpen ? ' is-open' : ''}`}>
+      <header
+        className={`panel${panelOpen ? ' is-open' : ''}${immersive ? ' is-away' : ''}`}
+        // Hidden from assistive tech as well as from view while it is off-screen
+        // — a translated element is still in the accessibility tree, and a
+        // screen reader would otherwise offer six controls the visitor cannot
+        // see and a tab stop that scrolls the page sideways to reach.
+        inert={immersive || undefined}
+      >
         <button
           type="button"
           className="panel__toggle"
@@ -146,7 +167,7 @@ export function App() {
             gl={{ antialias: true }}
           >
             <Suspense fallback={null}>
-              <Scene focus={focus} onFocus={setFocus} />
+              <Scene focus={focus} onFocus={setFocus} onImmersive={setImmersive} />
             </Suspense>
           </Canvas>
         </ErrorBoundary>

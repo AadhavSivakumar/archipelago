@@ -33,6 +33,16 @@ const SUN: [number, number, number] = [141, 105, 80]
 type Props = {
   focus: DistrictId | null
   onFocus: (id: DistrictId | null) => void
+  /**
+   * Raised while the camera is down among the world map, so the page chrome can
+   * get out of the way.
+   *
+   * The decision belongs in here rather than in App, because it is a fact about
+   * where the camera is — a continuous thing only the render loop sees — and
+   * the alternative is App subscribing to the camera to answer a question the
+   * scene has already answered for its own level-of-detail switch.
+   */
+  onImmersive: (immersive: boolean) => void
 }
 
 /**
@@ -47,7 +57,17 @@ type Props = {
  * change gradual, and leaves fast machines at full resolution.
  */
 /** Radians per second-ish; three multiplies this by 2pi/60/60 internally. */
-const IDLE_SPEED = 0.28
+/*
+  Raised from 0.28, and the idle delay in useIdle cut alongside it.
+
+  0.28 at 60Hz is about a sixth of a degree per second: over a ten-second pause
+  the world turned by less than two degrees, which is under the threshold at
+  which anyone notices it moved at all — so the feature was paying for itself in
+  code and returning almost nothing. At 0.9 the same pause carries five degrees,
+  which reads as a slow deliberate drift rather than as a still image, and each
+  idle spell covers enough ground to show the archipelago from a new angle.
+*/
+const IDLE_SPEED = 0.9
 
 type OrbitApi = { autoRotate: boolean; autoRotateSpeed: number }
 
@@ -85,7 +105,9 @@ function IdleOrbit({ active }: { active: boolean }) {
     }
 
     controls.autoRotate = true
-    gsap.to(speed.current, { value: IDLE_SPEED, duration: 2.6, ease: EASE.smooth })
+    // Ramp shortened with it. 2.6s to reach full speed was most of a short
+    // pause spent barely moving; 1.3s still starts imperceptibly.
+    gsap.to(speed.current, { value: IDLE_SPEED, duration: 1.3, ease: EASE.smooth })
   }, [active, controls])
 
   /*
@@ -165,7 +187,7 @@ function MapDetail({ active, onChange }: { active: boolean; onChange: (low: bool
   return null
 }
 
-export function Scene({ focus, onFocus }: Props) {
+export function Scene({ focus, onFocus, onImmersive }: Props) {
   /*
     True while the camera is down among the Geographical Garden's map. Drives
     every level-of-detail decision in this file: the coarse island, the dropped
@@ -349,7 +371,13 @@ export function Scene({ focus, onFocus }: Props) {
         <SMAA />
       </EffectComposer>
 
-      <MapDetail active={focus === 'geography'} onChange={setMapDetail} />
+      <MapDetail
+        active={focus === 'geography'}
+        onChange={(low) => {
+          setMapDetail(low)
+          onImmersive(low)
+        }}
+      />
 
       <AdaptiveDpr />
       <IdleOrbit active={idle && focus === null && !flying} />

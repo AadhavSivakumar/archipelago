@@ -1,7 +1,7 @@
-import { Suspense, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
-import { BlendFunction, ToneMappingMode } from 'postprocessing'
+import { BlendFunction, SMAAPreset, ToneMappingMode } from 'postprocessing'
 import {
   Environment,
   Lightformer,
@@ -125,8 +125,78 @@ function IdleOrbit({ active }: { active: boolean }) {
   return null
 }
 
-function AdaptiveDpr() {
+/**
+ * Keeps exactly one ACES curve applied, whichever path is drawing.
+ *
+ * The composer's ToneMapping effect and the renderer's own toneMapping are two
+ * separate applications of the same curve, and which of them is live depends on
+ * whether the composer is mounted. Left to itself that is a visible jump in
+ * contrast at the moment the map takes over the screen — either double-graded
+ * before or ungraded after. Naming both states explicitly means the transition
+ * is only a change in sharpness, which is the change that was intended.
+ */
+function ToneCurve({ composited }: { composited: boolean }) {
+  const gl = useThree((s) => s.gl)
+  useEffect(() => {
+    gl.toneMapping = composited ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping
+  }, [gl, composited])
+  return null
+}
+
+function AdaptiveDpr({ pinned }: { pinned: boolean }) {
   const setDpr = useThree((s) => s.setDpr)
+  /** The value last handed to setDpr, so identical ones are never re-sent. */
+  const applied = useRef(0)
+
+  /*
+    Every call to setDpr reallocates the drawing buffer and, because there is an
+    EffectComposer in the tree, every render target behind it. That is the black
+    flash: for the moment between the resize and the next completed render the
+    canvas is a freshly cleared buffer with nothing in it.
+
+    PerformanceMonitor's factor moves continuously, so the rounded ratio derived
+    from it lands on the same number again and again — and the old code sent it
+    every time regardless. Sending it only when it actually changes removes most
+    of the resizes outright.
+
+    The 0.05 window is not a rounding artefact but a deadband: without it a
+    factor hovering on the boundary between 1.8 and 1.9 alternates forever, and
+    each alternation is a reallocation the visitor sees.
+  */
+  const apply = (next: number) => {
+    if (Math.abs(next - applied.current) < 0.05) return
+    applied.current = next
+    setDpr(next)
+  }
+
+  /*
+    While the world map is the subject, resolution is pinned to native and the
+    monitor is ignored.
+
+    Everything but the map is unrendered down there, so the frame that
+    PerformanceMonitor would be reacting to is a plate, a hedge and some
+    cypresses — there is nothing left to save by rendering it at three quarters
+    scale, and rendering coastlines at three quarters scale is exactly the thing
+    that made the map look pixelated in the first place. The pixelation was never
+    in the geometry.
+  */
+  useEffect(() => {
+    /*
+      Not merely native: 1.5 at the least, capped at 2.
+
+      On a 1x display native is 1, and one sample per pixel on thousands of
+      near-diagonal coastline segments is where SMAA runs out of information to
+      work with. Rendering at 1.5x and letting the browser downsample is
+      supersampling by another name, and it is affordable precisely because the
+      island, the ocean, the sky ornaments and five of six districts are not
+      being drawn at all down here. On a 2x display this is native and changes
+      nothing.
+    */
+    if (pinned) apply(Math.min(2, Math.max(window.devicePixelRatio, 1.5)))
+    // Leaving the map hands control back to the monitor, which will set its own
+    // value on its next sample.
+  })
+
   return (
     <PerformanceMonitor
       // Seeded at the top of the range. The default of 0.5 would drop
@@ -134,15 +204,73 @@ function AdaptiveDpr() {
       // reveal — and then staircase back up over the following ten.
       factor={1}
       onChange={({ factor }) => {
-        // Scale the panel's OWN ratio. Handing setDpr an absolute number
-        // derived from factor alone would supersample a 1x display up to 2x,
-        // quadrupling its fragment count in the name of saving fragments.
+        if (pinned) return
+        /*
+          Scale the panel's OWN ratio. Handing setDpr an absolute number derived
+          from factor alone would supersample a 1x display up to 2x,
+          quadrupling its fragment count in the name of saving fragments.
+
+          The floor is 0.75 of native rather than 0.5. Half of a 2x display is
+          a literal halving of the resolution in each axis, and on the map that
+          read — correctly — as the whole thing being pixelated. Three quarters
+          is still a 44 per cent saving in fragments when a machine genuinely
+          needs it, and stays the right side of obvious.
+        */
         const native = Math.min(window.devicePixelRatio, 2)
-        setDpr(Math.max(1, Math.round(native * (0.5 + factor / 2) * 10) / 10))
+        apply(Math.max(1, Math.round(native * (0.75 + factor / 4) * 10) / 10))
       }}
     />
   )
 }
+
+/*
+  Grading, not effects.
+
+  The scene was rendering straight to the canvas with no tone curve, which is
+  why it read flat and plasticky however much geometry went into it: every
+  highlight clipped to the same white and every shadow sat at the same lifted
+  grey. ACES filmic gives the roll-off that makes bright surfaces feel bright
+  rather than blown, bloom lets the beacon and the emissive accents actually
+  glow, and a light vignette stops the frame reading as an evenly-lit product
+  shot. SMAA because EffectComposer renders to a framebuffer, which disables the
+  Canvas's MSAA — without it every roofline and column edge crawls.
+
+  Held as ONE element built once at module scope, and that is the fix for the
+  intermittent black flash rather than a tidying-up.
+
+  @react-three/postprocessing rebuilds its pass chain in an effect keyed on
+  `children`, and JSX creates a new children array on every render of its
+  parent. Scene re-renders whenever `idle`, `flying` or `mapDetail` changes —
+  and `idle` alone flips a couple of seconds after every pause and back on the
+  next mouse move — so the composer was tearing down and rebuilding its render
+  targets several times a minute during ordinary use. Each rebuild is a frame
+  with nothing in the buffer.
+
+  React bails out of reconciling a subtree when the element is referentially
+  identical to the previous one, so hoisting it here makes those re-renders
+  invisible to it. Everything inside is static, so there is nothing to close
+  over and no reason for it ever to be rebuilt.
+*/
+const GRADING = (
+  <EffectComposer multisampling={0} enableNormalPass={false}>
+    <Bloom intensity={0.42} luminanceThreshold={0.82} luminanceSmoothing={0.28} mipmapBlur />
+    <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+    <Vignette offset={0.32} darkness={0.42} blendFunction={BlendFunction.NORMAL} />
+    {/*
+      ULTRA rather than the MEDIUM default.
+
+      SMAA is the only antialiasing this scene has: EffectComposer renders into
+      a framebuffer, which disables the Canvas's MSAA outright. The preset sets
+      how far the edge-detection search runs, and the difference shows exactly
+      where it is being asked to work hardest — a coastline is thousands of
+      short, near-diagonal segments, which is the case MEDIUM gives up on
+      soonest and the case the world map is made of. It is a post-process on a
+      full-screen quad, so the cost is a handful of extra texture fetches per
+      pixel and nothing at all in the scene.
+    */}
+    <SMAA preset={SMAAPreset.ULTRA} />
+  </EffectComposer>
+)
 
 /**
  * Watches how close the camera has come to what it is looking at, and says when
@@ -295,7 +423,14 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
         shadow-camera-bottom={-100}
       />
 
-      <Water />
+      {/*
+        The ocean goes with everything else. It is the single most expensive
+        surface in the scene — 160,000 vertices displaced in the vertex stage,
+        covering most of the frame with a lit standard material and a
+        per-fragment ripple — and from directly above a plate that fills the
+        window, none of it is visible.
+      */}
+      <Water visible={!mapDetail} />
       {/*
         The sky's ornaments go when the map does. Clouds are large transparent
         meshes that cost fill wherever they cover the frame, and neither they
@@ -317,11 +452,18 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
         empty while something is reading it.
       */}
       <Suspense fallback={null}>
+        {/*
+          `hidden` rather than `lowDetail` now: down on the map the island is not
+          worth drawing at any resolution, so the coarse stand-in is gone too.
+          The invisible raycast proxy stays mounted either way — it is what the
+          district labels occlude against, and three does not consult `visible`
+          when raycasting.
+        */}
         <Island
           occluderRef={occluder}
           deepLinked={deepLinked}
           onPick={onFocus}
-          lowDetail={mapDetail}
+          hidden={mapDetail}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does
@@ -346,30 +488,32 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
       </Suspense>
 
       {/*
-        Grading, not effects.
+        No post-processing while the world map is the subject, and this is the
+        fix for the black frames rather than a performance tweak.
 
-        The scene was rendering straight to the canvas with no tone curve, which
-        is why it read flat and plasticky however much geometry went into it:
-        every highlight clipped to the same white and every shadow sat at the
-        same lifted grey. ACES filmic gives the roll-off that makes bright
-        surfaces feel bright rather than blown, bloom lets the beacon and the
-        emissive accents actually glow, and a light vignette stops the frame
-        reading as an evenly-lit product shot.
+        Measured: the composer renders the archipelago at a 2100x1275 buffer
+        without complaint, and produces an 82%-black frame — persistently, not
+        as a flicker — at the 2800x1700 buffer the map pins itself to. Its own
+        allocations are the reason. Two full-size HDR targets to ping-pong
+        between, bloom's mipmap chain on top of those, and SMAA's edge and
+        weight targets besides, all scaling with the square of the resolution;
+        somewhere past four and a half million pixels the whole chain stops
+        producing output. That threshold is a property of the machine, which is
+        exactly why it shows up as an occasional black flash on one and never on
+        another.
 
-        SMAA because EffectComposer renders to a framebuffer, which disables the
-        Canvas's MSAA — without it every roofline and column edge crawls.
+        Dropping it here costs nothing the map wants. There is no bloom to catch
+        — the emissive accents are all in the districts that are no longer being
+        drawn — and a vignette on a document is just a stain. What it BUYS is
+        the thing that was actually being asked for: EffectComposer renders into
+        a framebuffer, which turns the Canvas's MSAA off, and SMAA is a
+        post-process guess at the edges MSAA would have resolved exactly. A
+        coastline is tens of thousands of short near-diagonal segments, which is
+        the worst case for the guess and the best case for the real thing. Side
+        by side at 2x the unprocessed map is visibly sharper.
       */}
-      <EffectComposer multisampling={0} enableNormalPass={false}>
-        <Bloom
-          intensity={0.42}
-          luminanceThreshold={0.82}
-          luminanceSmoothing={0.28}
-          mipmapBlur
-        />
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        <Vignette offset={0.32} darkness={0.42} blendFunction={BlendFunction.NORMAL} />
-        <SMAA />
-      </EffectComposer>
+      {!mapDetail && GRADING}
+      <ToneCurve composited={!mapDetail} />
 
       <MapDetail
         active={focus === 'geography'}
@@ -379,7 +523,7 @@ export function Scene({ focus, onFocus, onImmersive }: Props) {
         }}
       />
 
-      <AdaptiveDpr />
+      <AdaptiveDpr pinned={mapDetail} />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} onFlyingChange={setFlying} />
       <OrbitControls

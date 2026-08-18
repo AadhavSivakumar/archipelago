@@ -2,13 +2,7 @@ import { use, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
-import {
-  islandGeometry,
-  islandLodGeometry,
-  islandOccluderGeometry,
-  ISLAND_LOD_MATERIAL,
-  ISLAND_MATERIAL,
-} from './terrain'
+import { islandGeometry, islandOccluderGeometry, ISLAND_MATERIAL } from './terrain'
 import { DISTRICTS, districtCentre, type DistrictId } from './districts'
 import { setCursor } from './cursor'
 import { uTime, water } from '../shaders/water'
@@ -54,10 +48,11 @@ type IslandProps = {
   /** Skip the reveal: the visitor arrived pointed at a district already. */
   deepLinked: boolean
   /**
-   * Drop to the coarse island. Set while the camera is down among the
-   * Geographical Garden's map, where the land is scenery rather than subject.
+   * Stop drawing the land entirely. Set while the camera is down among the
+   * Geographical Garden's map, which fills the window from directly above — the
+   * island is not merely peripheral there, it is off-screen.
    */
-  lowDetail: boolean
+  hidden: boolean
 }
 
 /**
@@ -69,7 +64,7 @@ type IslandProps = {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked, onPick, lowDetail }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick, hidden }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -105,22 +100,17 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail }: IslandPro
   return (
     <group ref={group}>
       {/*
-        Both meshes exist; only one is drawn. Swapping `visible` rather than
-        unmounting keeps the reveal's GSAP timeline pointed at a stable object
-        and avoids rebuilding a BufferGeometry every time the visitor zooms
-        across the threshold — the coarse one is built once, on the first frame
-        it is actually needed, and kept.
+        Hidden rather than unmounted: the reveal's GSAP timeline holds this
+        group, and the geometry took 390ms on a worker to build. `visible` costs
+        one boolean and three skips the whole subtree at render.
       */}
       <mesh
         geometry={geometry}
         material={ISLAND_MATERIAL}
-        visible={!lowDetail}
+        visible={!hidden}
         receiveShadow
         castShadow
       />
-      {lowDetail && (
-        <mesh geometry={islandLodGeometry()} material={ISLAND_LOD_MATERIAL} receiveShadow />
-      )}
       {/*
         Never drawn — a raycast target only. three does not consult `visible`
         when raycasting (Raycaster.intersect checks layers, Mesh.raycast never
@@ -203,7 +193,7 @@ const WATER_MATERIAL = new THREE.MeshStandardMaterial({
 */
 water(WATER_MATERIAL, { swell: true, chopStrength: 1.7 })
 
-export function Water() {
+export function Water({ visible }: { visible: boolean }) {
   useFrame((state) => {
     uTime.value = state.clock.elapsedTime
   })
@@ -211,5 +201,5 @@ export function Water() {
   // Deliberately not a shadow receiver: the depth pass renders the *undisplaced*
   // plane (onBeforeCompile does not touch the depth material), so the waves
   // self-shadow against their own flat shadow map and the whole ocean goes dark.
-  return <mesh geometry={WATER_GEOMETRY} material={WATER_MATERIAL} />
+  return <mesh geometry={WATER_GEOMETRY} material={WATER_MATERIAL} visible={visible} />
 }

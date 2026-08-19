@@ -574,7 +574,33 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           ARRIVES at 22 units with the whole world in frame, and coming closer
           is then something the visitor chooses.
         */
-        minDistance={focus === 'geography' ? 5 : 18}
+        /*
+          1.2 on the world map, and the number is set by the country flight
+          rather than by taste.
+
+          minDistance is not only a limit on the visitor's wheel — OrbitControls
+          enforces it inside update(), and CameraRig calls update() on every
+          tick of every flight. So any flight that ends closer than minDistance
+          does not end there: it runs until it reaches the limit and then stops
+          dead, mid-ease, with the tween still writing positions that update()
+          overwrites. Recorded on a descent onto the Congo at the old value of
+          5, the camera travelled from 10 units to 8.6 and then snapped to
+          exactly 5.000 and sat there — which is what "not smooth" looked like.
+
+          Country framings clamp to a floor of 1.6 units, so this sits below
+          that with headroom. It costs nothing: the wheel is disabled on this
+          district, so nothing but a flight can reach the limit at all.
+
+          `|| flying` covers the way out, which has the same problem in reverse.
+          Focus clears while the camera is still one to ten units above a
+          country, and if the limit snapped back to 18 on that frame, update()
+          would shove the camera out to 18 units before the retreat had drawn
+          anything — a jump of up to sixteen units in one frame, at the exact
+          moment the visitor is watching for the world to come back. Holding the
+          low limit until the flight lands means the tween owns the whole path
+          in both directions.
+        */
+        minDistance={focus === 'geography' || flying ? 1.2 : 18}
         /*
           The wheel is dead on the world map.
 

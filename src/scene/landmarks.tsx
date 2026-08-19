@@ -134,7 +134,7 @@ export type LandmarkProps = {
 }
 
 /** A place within a district worth flying to, in district-local units. */
-export type SubFocus = { x: number; z: number; spanX: number; spanZ: number }
+export type SubFocus = { x: number; z: number; spanX: number; spanZ: number; name: string }
 
 // ---------------------------------------------------------------------------
 // Placement helpers
@@ -787,7 +787,13 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
     onSubFocus?.(
       id < 0
         ? null
-        : { x: centres[id][0], z: centres[id][1], spanX: spans[id][0], spanZ: spans[id][1] },
+        : {
+            x: centres[id][0],
+            z: centres[id][1],
+            spanX: spans[id][0],
+            spanZ: spans[id][1],
+            name: COUNTRIES[id].name,
+          },
     )
   }
 

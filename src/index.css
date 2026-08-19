@@ -420,6 +420,75 @@ canvas {
 }
 
 /*
+  What a country is, in the corner the district dossier normally occupies.
+
+  Same geometry as .dossier deliberately: they never appear together, and a
+  reader should not have to re-find the place where "what am I looking at" is
+  answered just because the answer changed subject.
+*/
+.country-card {
+  position: fixed;
+  right: 22px;
+  bottom: 26px;
+  z-index: 9;
+  width: min(340px, 40vw);
+  max-height: 60dvh;
+  padding: 20px 22px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(8, 14, 24, 0.88));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  animation: panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.country-card__title {
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  /* The same amber the selected country is picked out in on the plate, so the
+     card and the highlight are visibly about the same thing. */
+  color: #ffd978;
+}
+
+.country-card__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+}
+
+.country-card__body--wait {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.country-card__link {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #ffd978;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 217, 120, 0.4);
+}
+
+.country-card__link:hover,
+.country-card__link:focus-visible {
+  border-bottom-color: #ffd978;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .country-card {
+    animation: none;
+  }
+}
+
+/*
   The way back, while the panel is off-screen.
 
   Sits where the panel's own controls were, so the exit does not move when the

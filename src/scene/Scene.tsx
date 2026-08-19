@@ -53,6 +53,8 @@ type Props = {
    * in App.
    */
   forceWorld: boolean
+  /** The country chosen on the world map, for the page to describe. */
+  onCountry: (name: string | null) => void
 }
 
 /**
@@ -155,57 +157,55 @@ function ToneCurve({ composited }: { composited: boolean }) {
 
 function AdaptiveDpr({ pinned }: { pinned: boolean }) {
   const setDpr = useThree((s) => s.setDpr)
-  /** The value last handed to setDpr, so identical ones are never re-sent. */
+  /** The value last handed to setDpr, and when. */
   const applied = useRef(0)
+  const changedAt = useRef(0)
 
   /*
     Every call to setDpr reallocates the drawing buffer and, because there is an
-    EffectComposer in the tree, every render target behind it. That is the black
-    flash: for the moment between the resize and the next completed render the
-    canvas is a freshly cleared buffer with nothing in it.
+    EffectComposer in the tree, every render target behind it. The frame that
+    lands between the reallocation and the next completed render has nothing in
+    it, which is the black flash.
 
-    PerformanceMonitor's factor moves continuously, so the rounded ratio derived
-    from it lands on the same number again and again — and the old code sent it
-    every time regardless. Sending it only when it actually changes removes most
-    of the resizes outright.
+    Two guards, and the second is the one that matters. Sending only changed
+    values removes the repeats. But PerformanceMonitor's factor is a continuous
+    reading of a continuously varying frame rate — it moves whenever the camera
+    does — so a ratio derived from it lands on a genuinely different number
+    every few seconds, and every one of those was a reallocation the visitor
+    saw. Three coarse steps rather than ten fine ones, and at most one change
+    every four seconds, turns a scene that reallocated its buffers all afternoon
+    into one that does it once or twice on arrival and then stops.
 
-    The 0.05 window is not a rounding artefact but a deadband: without it a
-    factor hovering on the boundary between 1.8 and 1.9 alternates forever, and
-    each alternation is a reallocation the visitor sees.
+    Resolution is not worth a flicker. The whole point of adapting it is to keep
+    the frame rate smooth, and a black frame is the least smooth thing the
+    renderer can do.
   */
-  const apply = (next: number) => {
-    if (Math.abs(next - applied.current) < 0.05) return
+  const apply = (next: number, now = performance.now()) => {
+    if (next === applied.current) return
+    if (now - changedAt.current < 4000) return
     applied.current = next
+    changedAt.current = now
     setDpr(next)
   }
 
   /*
-    While the world map is the subject, resolution is pinned to native and the
-    monitor is ignored.
+    While the world map is the subject, resolution is pinned and the monitor is
+    ignored — and pinned ABOVE native on a 1x display. Everything but the map is
+    unrendered down there, so there is nothing to save by rendering coastlines
+    at three-quarter scale, which is what made the map look pixelated. Rendering
+    at 1.5x and letting the browser downsample is supersampling by another name.
 
-    Everything but the map is unrendered down there, so the frame that
-    PerformanceMonitor would be reacting to is a plate, a hedge and some
-    cypresses — there is nothing left to save by rendering it at three quarters
-    scale, and rendering coastlines at three quarters scale is exactly the thing
-    that made the map look pixelated in the first place. The pixelation was never
-    in the geometry.
+    The pin bypasses the rate limit: it happens once, on a deliberate
+    navigation, and the visitor is watching a camera flight while it lands.
   */
   useEffect(() => {
-    /*
-      Not merely native: 1.5 at the least, capped at 2.
-
-      On a 1x display native is 1, and one sample per pixel on thousands of
-      near-diagonal coastline segments is where SMAA runs out of information to
-      work with. Rendering at 1.5x and letting the browser downsample is
-      supersampling by another name, and it is affordable precisely because the
-      island, the ocean, the sky ornaments and five of six districts are not
-      being drawn at all down here. On a 2x display this is native and changes
-      nothing.
-    */
-    if (pinned) apply(Math.min(2, Math.max(window.devicePixelRatio, 1.5)))
-    // Leaving the map hands control back to the monitor, which will set its own
-    // value on its next sample.
-  })
+    if (!pinned) return
+    const next = Math.min(2, Math.max(window.devicePixelRatio, 1.5))
+    if (next === applied.current) return
+    applied.current = next
+    changedAt.current = performance.now()
+    setDpr(next)
+  }, [pinned, setDpr])
 
   return (
     <PerformanceMonitor
@@ -216,18 +216,19 @@ function AdaptiveDpr({ pinned }: { pinned: boolean }) {
       onChange={({ factor }) => {
         if (pinned) return
         /*
-          Scale the panel's OWN ratio. Handing setDpr an absolute number derived
-          from factor alone would supersample a 1x display up to 2x,
-          quadrupling its fragment count in the name of saving fragments.
+          Three steps: full, seven-eighths, three-quarters of the panel's own
+          ratio. Scaling the NATIVE ratio rather than handing setDpr an absolute
+          number matters — an absolute value derived from factor alone would
+          supersample a 1x display up to 2x, quadrupling its fragment count in
+          the name of saving fragments.
 
-          The floor is 0.75 of native rather than 0.5. Half of a 2x display is
-          a literal halving of the resolution in each axis, and on the map that
-          read — correctly — as the whole thing being pixelated. Three quarters
-          is still a 44 per cent saving in fragments when a machine genuinely
-          needs it, and stays the right side of obvious.
+          The floor is 0.75, not the 0.5 it began at. Half of a 2x display is a
+          literal halving of the resolution in each axis, which reads — quite
+          correctly — as the whole thing being pixelated.
         */
         const native = Math.min(window.devicePixelRatio, 2)
-        apply(Math.max(1, Math.round(native * (0.75 + factor / 4) * 10) / 10))
+        const step = factor > 0.66 ? 1 : factor > 0.33 ? 0.875 : 0.75
+        apply(Math.max(1, Math.round(native * step * 20) / 20))
       }}
     />
   )
@@ -325,7 +326,7 @@ function MapDetail({ active, onChange }: { active: boolean; onChange: (low: bool
   return null
 }
 
-export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
+export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Props) {
   /*
     True while the camera is down among the Geographical Garden's map. Drives
     every level-of-detail decision in this file: the coarse island, the dropped
@@ -507,7 +508,10 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
             districts' worth of small draw calls are issued to render nothing.
           */
           soloDistrict={mapDetail ? focus : null}
-          onSubFocus={setSubFocus}
+          onSubFocus={(view) => {
+            setSubFocus(view)
+            onCountry(view?.name ?? null)
+          }}
         />
       </Suspense>
 

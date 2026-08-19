@@ -295,9 +295,28 @@ export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
     const duration = intro ? 3.2 : 1.5
     const ease = intro ? EASE.entrance : EASE.smooth
 
-    if (intro) {
-      // The opening is a straight pull-in from outside the scene; there is no
-      // island between the camera and its destination to sweep around.
+    /*
+      Overhead views do not arc, and this is not a preference.
+
+      The arc below works in polar coordinates about a pivot on the ground, and
+      that parameterisation falls apart when the camera is almost directly above
+      its target: the horizontal radius goes to nothing, so the azimuth is
+      computed from a lever arm of a few centimetres and is wildly sensitive to
+      where the target lands. Measured on a descent onto the Congo — a 7.5-unit
+      drop straight down — the maths asked for a 72-degree swing about a pivot
+      one unit away, with an 8-unit outward bulge on top. The camera hurled
+      itself sideways round the plate and back.
+
+      The arc exists to stop a hop between two districts cutting through the
+      island in the middle. There is nothing between a top-down camera and the
+      plate underneath it, so the reason does not apply and the straight line is
+      both correct and calm.
+    */
+    const overhead = focus !== null && DISTRICTS.find((x) => x.id === focus)?.framing === 'plan'
+
+    if (intro || overhead) {
+      // Straight pull-in: no island between the camera and its destination to
+      // sweep around.
       tl.to(
         camera.position,
         { ...view.position, duration, ease, overwrite: 'auto', onUpdate: () => controls.update() },

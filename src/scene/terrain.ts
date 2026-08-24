@@ -78,6 +78,61 @@ function assemble(r: TerrainArrays) {
   return geo
 }
 
+/*
+  Resolution of the island drawn while the camera is down on the world map.
+
+  452x576 against 192x246 is a fifth of the vertices. That is the point: with
+  the camera ten units above a plate twelve units across, the land is scenery —
+  most of it is outside the frustum, and a single mesh is submitted whole
+  whether or not its triangles land on screen.
+
+  Sized against the camera rather than picked round. The grid is graded, so a
+  quad's world size depends where it is; at the Garden's own position, 128 gives
+  a 3.8-unit quad, which from ten units up is enormous — the coarse island read
+  as a handful of flat facets with hard silhouette edges rather than as
+  low-detail ground. 192 brings that to 2.5 units, which under the fog this view
+  applies is soft enough not to draw the eye.
+
+  It is drawn rather than hidden because hiding it was worse. With nothing
+  behind the plate the rays that miss it reach the sky sphere, and the underside
+  of a Preetham sky is near-white — so the map sat in a bright void. A coarse
+  island under heavy fog gives it somewhere to be.
+*/
+const LOD_X = 192
+const LOD_Z = 246
+
+let lodBuilt: THREE.BufferGeometry | null = null
+
+/**
+ * A coarse island, for when the map is the subject.
+ *
+ * Synchronous and lazy: about 21k vertices rather than 260k, which is
+ * single-digit milliseconds — not worth a worker round trip, and built at most
+ * once per session, the first time the camera drops onto the map.
+ */
+export function islandLodGeometry() {
+  if (lodBuilt) return lodBuilt
+  const { positions, index } = buildGridArrays(LOD_X, LOD_Z)
+  const { normals, colors } = shadeTerrain(positions, index, PALETTE)
+  lodBuilt = assemble({ positions, normals, colors, index })
+  return lodBuilt
+}
+
+/**
+ * The plain material the coarse island wears.
+ *
+ * Unweathered, and that is most of the saving: the grain in surface.ts is four
+ * octaves of value noise plus screen-space derivatives per fragment, by some
+ * distance the most expensive shader in the scene. Same vertex colours, so the
+ * land keeps its palette and loses only its texture — which under the fog this
+ * view applies is not visible anyway.
+ */
+export const ISLAND_LOD_MATERIAL = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.95,
+  metalness: 0,
+})
+
 /** The synchronous path, kept as the fallback for when a worker cannot start. */
 function buildIslandGeometrySync() {
   const { positions, index } = buildGridArrays(GRID_X, GRID_Z)

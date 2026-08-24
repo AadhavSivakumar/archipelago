@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { BlendFunction, SMAAPreset, ToneMappingMode } from 'postprocessing'
@@ -6,7 +6,6 @@ import {
   Environment,
   Lightformer,
   OrbitControls,
-  PerformanceMonitor,
   Sky,
 } from '@react-three/drei'
 import * as THREE from 'three'
@@ -138,100 +137,188 @@ function IdleOrbit({ active }: { active: boolean }) {
 }
 
 /**
- * Keeps exactly one ACES curve applied, whichever path is drawing.
+ * The device pixel ratio, chosen once and never changed again.
  *
- * The composer's ToneMapping effect and the renderer's own toneMapping are two
- * separate applications of the same curve, and which of them is live depends on
- * whether the composer is mounted. Left to itself that is a visible jump in
- * contrast at the moment the map takes over the screen — either double-graded
- * before or ungraded after. Naming both states explicitly means the transition
- * is only a change in sharpness, which is the change that was intended.
+ * This replaces a PerformanceMonitor that drove setDpr from the measured frame
+ * rate. The idea was sound — render fewer fragments when the machine is
+ * struggling — but the cost was hidden in the mechanism: every call to setDpr
+ * reallocates the drawing buffer and, with an EffectComposer in the tree, every
+ * render target behind it, and the frame between the reallocation and the next
+ * completed render has nothing in it. That is a black flash. Adapting
+ * resolution to protect smoothness, by way of a black frame, is not a trade
+ * worth making; and because the factor tracked a continuously varying frame
+ * rate, it kept making it.
+ *
+ * Capped at 2 because past that the fragment count grows faster than anyone can
+ * see the difference, and floored at 1 so a low-density display is never
+ * rendered below its own resolution.
+ *
+ * Set in an effect rather than on the Canvas: a `dpr` prop is re-applied by
+ * R3F's configure() on every render of the component holding it, which would
+ * make it fight anything else that ever wanted to set it.
  */
-function ToneCurve({ composited }: { composited: boolean }) {
-  const gl = useThree((s) => s.gl)
-  useEffect(() => {
-    gl.toneMapping = composited ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping
-  }, [gl, composited])
+/*
+  The shadow camera is centred on the light's TARGET, and the default target
+  is the world origin — which is now a patch of open water. With the mainland
+  weighted to -Z, an origin-centred box spends tens of units on empty ocean on
+  one side while clipping the mainland's far corner on the other. Aiming at
+  roughly the centroid of the land lets a smaller map cover more of what
+  actually casts a shadow.
+*/
+const sunTarget = new THREE.Object3D()
+
+/**
+ * Everything in the scene that never changes: sky, fog object, environment
+ * probe, and the lights.
+ *
+ * One element, built once at module scope, and this is a bug fix rather than
+ * tidying. Scene re-renders whenever `idle`, `flying`, `mapDetail` or the
+ * chosen country changes — and `idle` alone flips a couple of seconds after
+ * every pause and back on the next mouse move, so this happens continuously
+ * during ordinary use.
+ *
+ * drei's <Environment> re-renders its cube probe in a layout effect keyed on
+ * `children`, and JSX creates a new children array on every render of its
+ * parent. So every one of those re-renders was tearing down the scene's
+ * environment, re-rendering six cube faces of the virtual scene, and putting it
+ * back — several times a minute, at moments that have nothing to do with
+ * anything the visitor did. That is the "random" in random flashes.
+ *
+ * React bails out of reconciling a subtree when the element is referentially
+ * identical to the last one, so hoisting it here makes those re-renders
+ * invisible to it. Nothing inside closes over anything, which is what makes
+ * this safe: the fog's near and far are driven by Haze writing to the object
+ * every frame, not by these initial arguments.
+ */
+const WORLD = (
+  <>
+  <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
+  {/*
+    Pulled well back. At [110, 340] against a camera 189 units out, the
+    near islands were already 30-60% hazed and the whole frame washed to one
+    pale blue — the fog was doing the job of distance on things that are not
+    distant. Starting at 200 leaves the archipelago itself clear and saves
+    the haze for the mainland and the world's rim, which is what it is for.
+  */}
+  <fog attach="fog" args={['#bcd2e4', 200, 560]} />
+
+  {/*
+    A procedural environment rather than an HDRI preset: drei's presets are
+    fetched from a CDN at runtime, which would add a network dependency to a
+    statically hosted page. Lightformers give the metals something to
+    reflect without leaving the bundle.
+  */}
+  <Environment resolution={256}>
+    <Lightformer form="ring" intensity={3.2} color="#ffe6bd" scale={16} position={[24, 18, -12]} />
+    <Lightformer form="rect" intensity={0.9} color="#9fc4ff" scale={[80, 40]} position={[-40, 20, -20]} rotation-y={Math.PI / 2} />
+    <Lightformer form="rect" intensity={0.5} color="#7fb0d8" scale={[90, 90]} position={[0, -30, 0]} rotation-x={-Math.PI / 2} />
+    <Lightformer form="rect" intensity={0.7} color="#dceaff" scale={[90, 40]} position={[0, 40, 0]} rotation-x={Math.PI / 2} />
+  </Environment>
+
+  {/*
+    Fill was the other half of the toy problem, alongside flat materials.
+
+    Ambient 0.35 plus hemisphere 0.6 put nearly a full unit of directionless
+    light on every surface, which meant no face on any object was ever
+    properly dark. Shadowed sides sat at almost the same value as lit ones,
+    every cast shadow washed out to a grey smudge, and with no tonal range
+    across a form the eye reads it as small and moulded — the same reason
+    product photography of miniatures uses a light tent.
+
+    Cut to roughly a third. The key below carries the scene now, the
+    hemisphere supplies the sky/ground colour split that keeps shadows blue
+    rather than black, and the Environment above still handles the metals.
+  */}
+  <ambientLight intensity={0.12} />
+  <hemisphereLight args={['#cfe4ff', '#41513c', 0.32]} />
+  <primitive object={sunTarget} position={[10, 0, -28]} />
+  <directionalLight
+    castShadow
+    target={sunTarget}
+    position={SUN}
+    intensity={3.4}
+    color="#fff2dc"
+    // 3072 rather than 4096: a 4096 map is ~128MB resident, two thirds of
+    // it a colour attachment nothing samples, and it is re-rendered every
+    // frame for the ~3s before the freeze. At 3072 over the 200-unit box
+    // below that is still ~15 texels per world unit — close to the 24 the
+    // old single island had at 2048 over 84 units.
+    shadow-mapSize={[3072, 3072]}
+    shadow-bias={-0.0004}
+    shadow-normalBias={0.06}
+    // Near/far are measured from the light, which now sits ~190 units out.
+    shadow-camera-near={60}
+    shadow-camera-far={340}
+    // ±100 about the aimed target above, which encloses the land: islands
+    // reach x ±69 and the mainland runs to z -101 before the rim fade.
+    shadow-camera-left={-100}
+    shadow-camera-right={100}
+    shadow-camera-top={100}
+    shadow-camera-bottom={-100}
+  />
+  </>
+)
+
+/** The two ends of the fog: the world's own haze, and the map's. */
+const FAR_HAZE = new THREE.Color('#bcd2e4')
+const NEAR_HAZE = new THREE.Color('#8fa8a6')
+
+/**
+ * Drops the surroundings out of focus while the map is being read.
+ *
+ * Fog rather than a depth-of-field pass, and the reasoning is not only cost.
+ * DoF would have to be added to the effect chain, and adding or removing an
+ * effect rebuilds that chain — which is precisely the class of mid-session
+ * teardown that was producing black frames in the first place. Leaving it
+ * mounted permanently would tax every frame of every view to blur one of them.
+ *
+ * Fog reaches the same end by a different route: it is a per-fragment blend
+ * already compiled into every material, so tightening it costs two uniforms and
+ * nothing else. The ramp starts at fifteen units because the plate's own far
+ * corners are 12.2 units from this camera — anything nearer and the projection
+ * itself starts hazing at its edges, which is the one thing that must stay
+ * crisp — and reaches full haze at thirty-eight, which is inside the garden's
+ * own island. The colour moves with it
+ * toward a grey-green, because the default haze is a pale sky blue and fog that
+ * pale reads as the surroundings being blown out rather than being far away.
+ *
+ * Tweened rather than switched, over the same 0.9s the camera takes to settle,
+ * so the world recedes as the map is approached instead of snapping when a
+ * threshold is crossed.
+ */
+function Haze({ close, scale }: { close: boolean; scale: number }) {
+  const scene = useThree((s) => s.scene)
+  const ramp = useRef({ near: 200 * scale, far: 560 * scale, mix: 0 })
+
+  useGSAP(() => {
+    const target = close
+      ? { near: 15, far: 38, mix: 1 }
+      : { near: 200 * scale, far: 560 * scale, mix: 0 }
+
+    if (prefersReducedMotion()) {
+      Object.assign(ramp.current, target)
+      return
+    }
+    gsap.to(ramp.current, { ...target, duration: 0.9, ease: EASE.smooth })
+  }, [close, scale])
+
+  useFrame(() => {
+    const fog = scene.fog as THREE.Fog | null
+    if (!fog) return
+    fog.near = ramp.current.near
+    fog.far = ramp.current.far
+    fog.color.copy(FAR_HAZE).lerp(NEAR_HAZE, ramp.current.mix)
+  })
+
   return null
 }
 
-function AdaptiveDpr({ pinned }: { pinned: boolean }) {
+function FixedDpr() {
   const setDpr = useThree((s) => s.setDpr)
-  /** The value last handed to setDpr, and when. */
-  const applied = useRef(0)
-  const changedAt = useRef(0)
-
-  /*
-    Every call to setDpr reallocates the drawing buffer and, because there is an
-    EffectComposer in the tree, every render target behind it. The frame that
-    lands between the reallocation and the next completed render has nothing in
-    it, which is the black flash.
-
-    Two guards, and the second is the one that matters. Sending only changed
-    values removes the repeats. But PerformanceMonitor's factor is a continuous
-    reading of a continuously varying frame rate — it moves whenever the camera
-    does — so a ratio derived from it lands on a genuinely different number
-    every few seconds, and every one of those was a reallocation the visitor
-    saw. Three coarse steps rather than ten fine ones, and at most one change
-    every four seconds, turns a scene that reallocated its buffers all afternoon
-    into one that does it once or twice on arrival and then stops.
-
-    Resolution is not worth a flicker. The whole point of adapting it is to keep
-    the frame rate smooth, and a black frame is the least smooth thing the
-    renderer can do.
-  */
-  const apply = (next: number, now = performance.now()) => {
-    if (next === applied.current) return
-    if (now - changedAt.current < 4000) return
-    applied.current = next
-    changedAt.current = now
-    setDpr(next)
-  }
-
-  /*
-    While the world map is the subject, resolution is pinned and the monitor is
-    ignored — and pinned ABOVE native on a 1x display. Everything but the map is
-    unrendered down there, so there is nothing to save by rendering coastlines
-    at three-quarter scale, which is what made the map look pixelated. Rendering
-    at 1.5x and letting the browser downsample is supersampling by another name.
-
-    The pin bypasses the rate limit: it happens once, on a deliberate
-    navigation, and the visitor is watching a camera flight while it lands.
-  */
   useEffect(() => {
-    if (!pinned) return
-    const next = Math.min(2, Math.max(window.devicePixelRatio, 1.5))
-    if (next === applied.current) return
-    applied.current = next
-    changedAt.current = performance.now()
-    setDpr(next)
-  }, [pinned, setDpr])
-
-  return (
-    <PerformanceMonitor
-      // Seeded at the top of the range. The default of 0.5 would drop
-      // resolution unconditionally a couple of seconds in — right through the
-      // reveal — and then staircase back up over the following ten.
-      factor={1}
-      onChange={({ factor }) => {
-        if (pinned) return
-        /*
-          Three steps: full, seven-eighths, three-quarters of the panel's own
-          ratio. Scaling the NATIVE ratio rather than handing setDpr an absolute
-          number matters — an absolute value derived from factor alone would
-          supersample a 1x display up to 2x, quadrupling its fragment count in
-          the name of saving fragments.
-
-          The floor is 0.75, not the 0.5 it began at. Half of a 2x display is a
-          literal halving of the resolution in each axis, which reads — quite
-          correctly — as the whole thing being pixelated.
-        */
-        const native = Math.min(window.devicePixelRatio, 2)
-        const step = factor > 0.66 ? 1 : factor > 0.33 ? 0.875 : 0.75
-        apply(Math.max(1, Math.round(native * step * 20) / 20))
-      }}
-    />
-  )
+    setDpr(Math.min(Math.max(window.devicePixelRatio, 1), 2))
+  }, [setDpr])
+  return null
 }
 
 /*
@@ -370,82 +457,10 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
   */
   const deepLinked = useRef(focus !== null).current
 
-  /*
-    The shadow camera is centred on the light's TARGET, and the default target
-    is the world origin — which is now a patch of open water. With the mainland
-    weighted to -Z, an origin-centred box spends tens of units on empty ocean on
-    one side while clipping the mainland's far corner on the other. Aiming at
-    roughly the centroid of the land lets a smaller map cover more of what
-    actually casts a shadow.
-  */
-  const sunTarget = useMemo(() => new THREE.Object3D(), [])
 
   return (
     <>
-      <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
-      {/*
-        Pulled well back. At [110, 340] against a camera 189 units out, the
-        near islands were already 30-60% hazed and the whole frame washed to one
-        pale blue — the fog was doing the job of distance on things that are not
-        distant. Starting at 200 leaves the archipelago itself clear and saves
-        the haze for the mainland and the world's rim, which is what it is for.
-      */}
-      <fog attach="fog" args={['#bcd2e4', 200 * scale, 560 * scale]} />
-
-      {/*
-        A procedural environment rather than an HDRI preset: drei's presets are
-        fetched from a CDN at runtime, which would add a network dependency to a
-        statically hosted page. Lightformers give the metals something to
-        reflect without leaving the bundle.
-      */}
-      <Environment resolution={256}>
-        <Lightformer form="ring" intensity={3.2} color="#ffe6bd" scale={16} position={[24, 18, -12]} />
-        <Lightformer form="rect" intensity={0.9} color="#9fc4ff" scale={[80, 40]} position={[-40, 20, -20]} rotation-y={Math.PI / 2} />
-        <Lightformer form="rect" intensity={0.5} color="#7fb0d8" scale={[90, 90]} position={[0, -30, 0]} rotation-x={-Math.PI / 2} />
-        <Lightformer form="rect" intensity={0.7} color="#dceaff" scale={[90, 40]} position={[0, 40, 0]} rotation-x={Math.PI / 2} />
-      </Environment>
-
-      {/*
-        Fill was the other half of the toy problem, alongside flat materials.
-
-        Ambient 0.35 plus hemisphere 0.6 put nearly a full unit of directionless
-        light on every surface, which meant no face on any object was ever
-        properly dark. Shadowed sides sat at almost the same value as lit ones,
-        every cast shadow washed out to a grey smudge, and with no tonal range
-        across a form the eye reads it as small and moulded — the same reason
-        product photography of miniatures uses a light tent.
-
-        Cut to roughly a third. The key below carries the scene now, the
-        hemisphere supplies the sky/ground colour split that keeps shadows blue
-        rather than black, and the Environment above still handles the metals.
-      */}
-      <ambientLight intensity={0.12} />
-      <hemisphereLight args={['#cfe4ff', '#41513c', 0.32]} />
-      <primitive object={sunTarget} position={[10, 0, -28]} />
-      <directionalLight
-        castShadow
-        target={sunTarget}
-        position={SUN}
-        intensity={3.4}
-        color="#fff2dc"
-        // 3072 rather than 4096: a 4096 map is ~128MB resident, two thirds of
-        // it a colour attachment nothing samples, and it is re-rendered every
-        // frame for the ~3s before the freeze. At 3072 over the 200-unit box
-        // below that is still ~15 texels per world unit — close to the 24 the
-        // old single island had at 2048 over 84 units.
-        shadow-mapSize={[3072, 3072]}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.06}
-        // Near/far are measured from the light, which now sits ~190 units out.
-        shadow-camera-near={60}
-        shadow-camera-far={340}
-        // ±100 about the aimed target above, which encloses the land: islands
-        // reach x ±69 and the mainland runs to z -101 before the rim fade.
-        shadow-camera-left={-100}
-        shadow-camera-right={100}
-        shadow-camera-top={100}
-        shadow-camera-bottom={-100}
-      />
+      {WORLD}
 
       {/*
         The ocean goes with everything else. It is the single most expensive
@@ -454,7 +469,9 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         per-fragment ripple — and from directly above a plate that fills the
         window, none of it is visible.
       */}
-      <Water visible={!mapDetail} />
+      {/* Stays drawn on the map. It is what the coarse island sits in, and
+          without it the sea around the plate is sky. */}
+      <Water visible />
       {/*
         The sky's ornaments go when the map does. Clouds are large transparent
         meshes that cost fill wherever they cover the frame, and neither they
@@ -487,7 +504,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           occluderRef={occluder}
           deepLinked={deepLinked}
           onPick={onFocus}
-          hidden={mapDetail}
+          lowDetail={mapDetail}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does
@@ -540,8 +557,27 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         the worst case for the guess and the best case for the real thing. Side
         by side at 2x the unprocessed map is visibly sharper.
       */}
-      {!mapDetail && GRADING}
-      <ToneCurve composited={!mapDetail} />
+      {/*
+        Always mounted, in every view, and that is the fix for the black flash
+        and the stutter rather than a preference.
+
+        This used to be dropped while the map was the subject, which meant that
+        the frame the camera crossed the level-of-detail threshold — mid-flight,
+        on the way in — did three expensive things at once. The composer
+        unmounted, disposing every render target it owned. `gl.toneMapping`
+        changed, which marks EVERY material in the scene for recompilation.
+        And the pixel ratio was pinned, reallocating the drawing buffer. A
+        teardown and two reallocations, all on one frame, in the middle of a
+        camera move: that is a black flash followed by a stall, arriving exactly
+        when the visitor clicks into the Garden.
+
+        None of the three is worth what it cost. The composer's own passes are
+        the same in both views; the tone curve should never move at all; and
+        adapting resolution mid-session buys smoothness by way of a black frame,
+        which is a poor trade. So nothing is switched now, and the only price is
+        that the map antialiases through SMAA rather than the Canvas's MSAA.
+      */}
+      {GRADING}
 
       <MapDetail
         active={focus === 'geography'}
@@ -551,7 +587,8 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         }}
       />
 
-      <AdaptiveDpr pinned={mapDetail} />
+      <Haze close={mapDetail} scale={scale} />
+      <FixedDpr />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />
       <OrbitControls

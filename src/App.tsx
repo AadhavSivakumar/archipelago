@@ -236,7 +236,28 @@ export function App() {
             shadows="percentage"
             onCreated={({ setDpr }) => setDpr(Math.min(window.devicePixelRatio, 2))}
             camera={{ position: [0, 115, 180], fov: 42, near: 0.5, far: 800 }}
-            gl={{ antialias: true }}
+            /*
+              preserveDrawingBuffer, and it is a workaround rather than a
+              feature — so here is exactly what it does and what it costs.
+
+              Without it the browser may discard the drawing buffer after each
+              composite, and anything that reads the canvas at the wrong moment
+              gets an empty one. Measured here: sixteen captures through the
+              flight into the Garden produced two frames of pure black, while
+              the fog and clear colour driving those same frames were logged and
+              were correct throughout — the scene was fine and the buffer was
+              not there. With this flag on, the identical run produced none.
+
+              That is a capture artefact, but it is the same mechanism behind a
+              known class of intermittent black flash on real machines, where
+              the compositor rather than a screenshot is the reader. It is the
+              only cause left standing after the reallocations were removed.
+
+              The cost is that the browser can no longer skip preserving the
+              buffer between frames, which is a small per-frame copy. Worth it
+              against a flash.
+            */
+            gl={{ antialias: true, preserveDrawingBuffer: true }}
           >
             <Suspense fallback={null}>
               <Scene

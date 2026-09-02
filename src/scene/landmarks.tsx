@@ -611,7 +611,7 @@ const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.05, 0.026)
   supporting it. A graticule wants to be read when looked for and ignored
   otherwise, which means it has to be darker than the water, not lighter.
 */
-const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7 }, { grain: 20, mottle: 0.08, bump: 0.16, rough: 0.06 })
+const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7, fog: false }, { grain: 20, mottle: 0.08, bump: 0.16, rough: 0.06 })
 
 /*
   The Garden gets its own stone, hedge and brass, finer than the shared ones.
@@ -629,7 +629,9 @@ const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7 }, { grain: 20, mot
   amplitude. The features land at five to eight pixels rather than twenty-plus,
   which is the size at which the eye reads a surface rather than a pattern.
 */
-const GARDEN_STONE = std({ color: '#9d9a92', roughness: 0.88 }, { grain: 18, mottle: 0.055, bump: 0.11, rough: 0.04 })
+/* The kerb is part of the map — it is the frame around the projection — so it
+   is exempt from the haze along with the face inside it. */
+const GARDEN_STONE = std({ color: '#9d9a92', roughness: 0.88, fog: false }, { grain: 18, mottle: 0.055, bump: 0.11, rough: 0.04 })
 const GARDEN_MARBLE = std({ color: '#dcd6cb', roughness: 0.42 }, { grain: 22, mottle: 0.04, bump: 0.07, rough: 0.03 })
 /* The hedge keeps most of its grain: it is the one surface here that is
    supposed to look organic, and it sits outside the projection where it cannot
@@ -653,7 +655,7 @@ const GARDEN_BRASS = std(
     the specular lobe enough, that the bar shows its own colour and a gradient
     rather than the environment's pixels.
   */
-  { color: '#a5893f', roughness: 0.52, metalness: 0.45 },
+  { color: '#a5893f', roughness: 0.52, metalness: 0.45, fog: false },
   { grain: 24, mottle: 0.02, bump: 0.03, rough: 0.02 },
 )
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
@@ -716,7 +718,13 @@ const MAP_SEA_MAT = water(
     water. At 6 the coarsest lands near 100 pixels and the finest near 15, which
     is the range that reads as a surface being disturbed.
   */
-  new THREE.MeshStandardMaterial({ color: '#1b5b85', roughness: 0.38, metalness: 0.3 }),
+  // fog: false, with the rest of the plate — see landMaterial in worldMap.ts.
+  new THREE.MeshStandardMaterial({
+    color: '#1b5b85',
+    roughness: 0.38,
+    metalness: 0.3,
+    fog: false,
+  }),
   { chopScale: 6, chopStrength: 2.2 },
 )
 

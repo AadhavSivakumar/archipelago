@@ -364,6 +364,19 @@ export function landMaterial() {
     color: '#4d8a56',
     roughness: 0.92,
     vertexColors: true,
+    /*
+      Exempt from fog, along with the rest of the plate — see the note on the
+      haze in Scene.tsx.
+
+      The fog that dissolves the world while the map is being read has to reach
+      full opacity within about eleven units to swallow the hedge, and the
+      plate's own far corners are twelve from the same camera. There is no pair
+      of near/far values that hides one and spares the other. Turning fog off
+      for the surfaces that make up the map removes the conflict entirely: the
+      haze can then be as tight as it needs to be, and the projection stays
+      exactly as crisp as it was.
+    */
+    fog: false,
   })
 
   material.onBeforeCompile = (shader) => {
@@ -441,4 +454,6 @@ export const BORDER_MATERIAL = new THREE.LineBasicMaterial({
   color: '#2b4a34',
   transparent: true,
   opacity: 0.55,
+  // Unfogged with the land it divides; see landMaterial.
+  fog: false,
 })

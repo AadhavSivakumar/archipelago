@@ -165,6 +165,9 @@ function IdleOrbit({ active }: { active: boolean }) {
   roughly the centroid of the land lets a smaller map cover more of what
   actually casts a shadow.
 */
+/** So Backdrop can find the sky mesh without threading a ref through WORLD. */
+const SKY_NAME = 'world-sky'
+
 const sunTarget = new THREE.Object3D()
 
 /**
@@ -192,7 +195,11 @@ const sunTarget = new THREE.Object3D()
  */
 const WORLD = (
   <>
-  <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
+  {/* Wrapped so Backdrop can find it by name: drei's Sky does not forward a
+      `name` prop to the mesh it creates. */}
+  <group name={SKY_NAME}>
+    <Sky sunPosition={SUN} turbidity={5} rayleigh={1.6} mieCoefficient={0.008} mieDirectionalG={0.82} />
+  </group>
   {/*
     Pulled well back. At [110, 340] against a camera 189 units out, the
     near islands were already 30-60% hazed and the whole frame washed to one
@@ -259,6 +266,32 @@ const WORLD = (
   </>
 )
 
+/**
+ * Hides the sky while the world is stripped, and hands the backdrop back after.
+ *
+ * The sky is a mesh with its own shader and it does not take fog, so unlike
+ * everything else it cannot be dissolved by the haze. It does not need to be:
+ * by the time the world stops being drawn, the renderer is clearing to the
+ * haze colour and the sky is behind that, so switching it off is not visible.
+ *
+ * Nothing needs to be undone on the way back. Haze owns scene.background and
+ * keeps it equal to the fog colour on every frame, in every view — which at
+ * home is the pale blue the sky itself fades to at the horizon, and is in any
+ * case behind a sky sphere that covers the whole frame. Clearing it here as
+ * well would be a second writer for one value, and the loser of that race is
+ * decided by effect ordering rather than by intent.
+ */
+function Backdrop({ stripped }: { stripped: boolean }) {
+  const scene = useThree((s) => s.scene)
+
+  useEffect(() => {
+    const sky = scene.getObjectByName(SKY_NAME)
+    if (sky) sky.visible = !stripped
+  }, [scene, stripped])
+
+  return null
+}
+
 /** The two ends of the fog: the world's own haze, and the map's. */
 const FAR_HAZE = new THREE.Color('#bcd2e4')
 const NEAR_HAZE = new THREE.Color('#8fa8a6')
@@ -274,33 +307,59 @@ const NEAR_HAZE = new THREE.Color('#8fa8a6')
  *
  * Fog reaches the same end by a different route: it is a per-fragment blend
  * already compiled into every material, so tightening it costs two uniforms and
- * nothing else. The ramp starts at fifteen units because the plate's own far
- * corners are 12.2 units from this camera — anything nearer and the projection
- * itself starts hazing at its edges, which is the one thing that must stay
- * crisp — and reaches full haze at thirty-eight, which is inside the garden's
- * own island. The colour moves with it
- * toward a grey-green, because the default haze is a pale sky blue and fog that
- * pale reads as the surroundings being blown out rather than being far away.
+ * nothing else. The colour moves with it toward a grey-green, because the
+ * default haze is a pale sky blue and fog that pale reads as the surroundings
+ * being blown out rather than being far away.
  *
- * Tweened rather than switched, over the same 0.9s the camera takes to settle,
- * so the world recedes as the map is approached instead of snapping when a
- * threshold is crossed.
+ * The close ramp finishes at eleven units, nearer than the plate's own far
+ * corners at 12.2, and that is deliberate. Every surface making up the map opts
+ * out of fog (see landMaterial in worldMap.ts), so the haze can be tight enough
+ * to swallow the hedge standing right beside the plate without touching the
+ * projection inside it. No pair of near/far values separates those two by
+ * distance; exempting the map is what makes the separation possible at all.
+ *
+ * When the ramp lands, everything except the map is a flat field of one colour.
+ * That is the moment onSettled reports, and it is what lets Scene stop drawing
+ * the world without anything appearing to happen — see `stripped`.
  */
-function Haze({ close, scale }: { close: boolean; scale: number }) {
+function Haze({
+  close,
+  scale,
+  onSettled,
+}: {
+  close: boolean
+  scale: number
+  onSettled: (settled: boolean) => void
+}) {
   const scene = useThree((s) => s.scene)
   const ramp = useRef({ near: 200 * scale, far: 560 * scale, mix: 0 })
 
   useGSAP(() => {
     const target = close
-      ? { near: 15, far: 38, mix: 1 }
+      ? { near: 1, far: 11, mix: 1 }
       : { near: 200 * scale, far: 560 * scale, mix: 0 }
+
+    /*
+      Opening up reports immediately; closing down reports only once it lands.
+      That asymmetry IS the transition. On the way in, the world has to keep
+      being drawn until the haze has fully dissolved it, or it vanishes before
+      anything has hidden it. On the way out it has to be drawn again BEFORE the
+      haze lifts, or it appears out of a clear sky.
+    */
+    if (!close) onSettled(false)
 
     if (prefersReducedMotion()) {
       Object.assign(ramp.current, target)
+      onSettled(close)
       return
     }
-    gsap.to(ramp.current, { ...target, duration: 0.9, ease: EASE.smooth })
-  }, [close, scale])
+    gsap.to(ramp.current, {
+      ...target,
+      duration: 0.9,
+      ease: EASE.smooth,
+      onComplete: () => onSettled(close),
+    })
+  }, [close, scale, onSettled])
 
   useFrame(() => {
     const fog = scene.fog as THREE.Fog | null
@@ -308,6 +367,20 @@ function Haze({ close, scale }: { close: boolean; scale: number }) {
     fog.near = ramp.current.near
     fog.far = ramp.current.far
     fog.color.copy(FAR_HAZE).lerp(NEAR_HAZE, ramp.current.mix)
+
+    /*
+      The clear colour follows the fog exactly.
+
+      Once the world stops being drawn there is nothing left for the fog to act
+      on, so whatever the renderer clears to becomes the backdrop. Holding that
+      at the colour the fog has just faded everything to means the hand-over
+      from "a world hidden behind haze" to "no world at all" is not a visible
+      event. It is also why the sky can be dropped: by then it is behind a
+      backdrop of the same colour.
+    */
+    if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color()
+    ;(scene.background as THREE.Color).copy(fog.color)
+
   })
 
   return null
@@ -423,6 +496,18 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
   const mapDetail = mapDetailRaw && !forceWorld
 
   /*
+    True once the haze has finished dissolving the world, and therefore once the
+    world can stop being drawn without anything appearing to change.
+
+    Two states rather than one, because "the map is the subject" and "there is
+    nothing else left to draw" happen nearly a second apart and must not be
+    confused. Hiding on the first is what produced a pop; hiding on the second
+    is invisible, because by then every pixel outside the plate is already the
+    single colour the backdrop is being held at.
+  */
+  const [stripped, setStripped] = useState(false)
+
+  /*
     Where inside the focused district the camera should be looking, if anywhere
     more specific than the district itself. Only the world map raises it, when a
     country is chosen.
@@ -461,6 +546,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
   return (
     <>
       {WORLD}
+      <Backdrop stripped={stripped} />
 
       {/*
         The ocean goes with everything else. It is the single most expensive
@@ -469,16 +555,16 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         per-fragment ripple — and from directly above a plate that fills the
         window, none of it is visible.
       */}
-      {/* Stays drawn on the map. It is what the coarse island sits in, and
-          without it the sea around the plate is sky. */}
-      <Water visible />
+      {/* Drawn until the haze has swallowed it, then not. It is what the
+          coarse island sits in while both are still visible. */}
+      <Water visible={!stripped} />
       {/*
         The sky's ornaments go when the map does. Clouds are large transparent
         meshes that cost fill wherever they cover the frame, and neither they
         nor the birds nor the boat is on screen with the camera five units above
         a plate — they are all above or beyond it.
       */}
-      <Ambient visible={!mapDetail} />
+      <Ambient visible={!stripped} />
 
       {/*
         The island's geometry is built on a worker, so Island suspends. Sky,
@@ -505,13 +591,14 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           deepLinked={deepLinked}
           onPick={onFocus}
           lowDetail={mapDetail}
+          hidden={stripped}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does
             would leave it floating. */}
         {/* Off with the rest of the archipelago while the map is the subject —
           it stands on the centre island, well outside the map's frame. */}
-        <Monument visible={!mapDetail} />
+        <Monument visible={!stripped} />
         <Districts
           focus={focus}
           onFocus={onFocus}
@@ -524,7 +611,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
             and nine windows, and frustum culling happens per object, so five
             districts' worth of small draw calls are issued to render nothing.
           */
-          soloDistrict={mapDetail ? focus : null}
+          soloDistrict={stripped ? focus : null}
           onSubFocus={(view) => {
             setSubFocus(view)
             onCountry(view?.name ?? null)
@@ -587,7 +674,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         }}
       />
 
-      <Haze close={mapDetail} scale={scale} />
+      <Haze close={mapDetail} scale={scale} onSettled={setStripped} />
       <FixedDpr />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />
@@ -650,6 +737,23 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           untouched.
         */
         enableZoom={focus !== 'geography'}
+        /*
+          And no orbiting either, on this district alone.
+
+          Everywhere else the camera is looking AT something and turning around
+          it is how you see it. Here it is looking DOWN at a projection, and
+          rotating an equirectangular map is not a way of examining it — it is
+          a way of making it unreadable, because the whole claim the drawing
+          makes is that north is up and the graticule is square. Orbiting also
+          walks straight out of the one framing everything else here is built
+          for: the haze, the exempt materials and the country flights all assume
+          the camera is roughly overhead.
+
+          With zoom already gone this leaves the controls inert on the map,
+          which is the right answer — every way of moving here is a click on a
+          country or the way out.
+        */
+        enableRotate={focus !== 'geography'}
         // Home is ~126 units out and framing.ts pulls back up to 2x on a portrait
         // phone, so the ceiling has to clear 252.
         maxDistance={320}

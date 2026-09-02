@@ -58,6 +58,12 @@ type IslandProps = {
    * where the land is scenery behind a document rather than the subject.
    */
   lowDetail: boolean
+  /**
+   * Stop drawing the land at all. Set only once the haze has already dissolved
+   * it to a flat colour, so this is never a visible change — see Scene's
+   * `stripped`.
+   */
+  hidden: boolean
 }
 
 /**
@@ -69,7 +75,7 @@ type IslandProps = {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked, onPick, lowDetail }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -118,12 +124,17 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail }: IslandPro
       <mesh
         geometry={geometry}
         material={ISLAND_MATERIAL}
-        visible={!lowDetail}
+        visible={!lowDetail && !hidden}
         receiveShadow
         castShadow
       />
       {lowDetail && (
-        <mesh geometry={islandLodGeometry()} material={ISLAND_LOD_MATERIAL} receiveShadow />
+        <mesh
+          geometry={islandLodGeometry()}
+          material={ISLAND_LOD_MATERIAL}
+          visible={!hidden}
+          receiveShadow
+        />
       )}
       {/*
         Never drawn — a raycast target only. three does not consult `visible`

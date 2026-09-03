@@ -756,11 +756,32 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
   useEffect(() => {
     if (!focused || fine) return
     let live = true
-    loadFineMap().then((built) => {
-      if (live) setFine(built)
-    })
+
+    /*
+      Deliberately started AFTER the camera has landed, not when the district is
+      focused.
+
+      Fetching is asynchronous and harmless, but building is not: 24,050 points
+      extruded and merged is 80-105ms of solid main thread, measured. Kicked off
+      on focus, that lands in the middle of the 1.5-second flight, which is the
+      one second in the whole interaction when something is moving and a stall
+      is guaranteed to be seen — it reads as the camera stuttering on its way
+      in, which is exactly how it was reported.
+
+      1.7s clears the flight with a margin. The coarse map is what shows until
+      then, and at the moment of arrival it is barely distinguishable: the
+      difference between the two sets is a fraction of a pixel at this range,
+      and it sharpens a beat later while the camera is still.
+    */
+    const start = setTimeout(() => {
+      loadFineMap().then((built) => {
+        if (live) setFine(built)
+      })
+    }, 1700)
+
     return () => {
       live = false
+      clearTimeout(start)
     }
   }, [focused, fine])
 
@@ -1302,7 +1323,14 @@ const CROWN_LOBES = [
   variant instead of one for all three, which is two extra calls total.
 */
 const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
-  lumpen(new THREE.SphereGeometry(1.45, 48, 36), seed, 0.62),
+  /*
+    20x14 rather than 48x36. Sixty-six of these are drawn in the Arboretum, at
+    3,384 triangles each, so the grove alone was 222,000 — more than a tenth of
+    the whole scene, spent on smoothness in a shape whose entire point is that
+    it is lumpy. At 560 triangles the same displacement reads identically at the
+    distance a district view parks at, and the grove costs 37,000.
+  */
+  lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62),
 )
 
 export function ArtisticArboretum({ d }: LandmarkProps) {

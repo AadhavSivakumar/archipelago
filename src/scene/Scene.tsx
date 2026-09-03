@@ -250,7 +250,15 @@ const WORLD = (
     // frame for the ~3s before the freeze. At 3072 over the 200-unit box
     // below that is still ~15 texels per world unit — close to the 24 the
     // old single island had at 2048 over 84 units.
-    shadow-mapSize={[3072, 3072]}
+    /*
+      2048, down from 3072. A shadow map costs its own full render of every
+      caster in the scene, and its memory grows with the square — 3072 is 2.25x
+      the pixels of 2048 for a map that, over the 200-unit box below, still
+      gives about 10 texels per world unit. These shadows are soft, frozen after
+      the reveal, and cast by rounded landforms; there is no hard edge in the
+      frame for the extra resolution to sharpen.
+    */
+    shadow-mapSize={[2048, 2048]}
     shadow-bias={-0.0004}
     shadow-normalBias={0.06}
     // Near/far are measured from the light, which now sits ~190 units out.
@@ -439,7 +447,19 @@ const GRADING = (
       full-screen quad, so the cost is a handful of extra texture fetches per
       pixel and nothing at all in the scene.
     */}
-    <SMAA preset={SMAAPreset.ULTRA} />
+    {/*
+      MEDIUM, down from ULTRA.
+
+      The preset controls how far the edge search runs per pixel, and it is a
+      full-screen cost on every frame. ULTRA was chosen for the world map's
+      coastlines, which are thousands of short near-diagonal segments — the
+      hardest case there is. But the map is now read from ten units with the
+      whole world stripped behind it, which is the cheapest frame this scene
+      ever draws and the one place that could afford it least badly. Everywhere
+      else it was buying a difference nobody asked about, on the frames that
+      were already the most expensive.
+    */}
+    <SMAA preset={SMAAPreset.MEDIUM} />
   </EffectComposer>
 )
 

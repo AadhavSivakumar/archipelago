@@ -33,11 +33,12 @@ export const uTime = { value: 0 }
   1.5 and 2.0, so the components have no low common multiple to repeat at — the
   same reason fbm uses a lacunarity of 2.03 instead of 2.
 
-  The wavenumbers also stop at 0.46, a 13.6-unit wavelength. The ocean plane is
-  1600 units across 400 segments, so a quad is 4 units; anything shorter than
-  about three quads shows up as faceting rather than as swell. Finer detail
-  than that is added per-fragment instead, in Island.tsx, where it costs no
-  geometry.
+  The wavenumbers now stop at 0.27, a 23-unit wavelength. The ocean plane is
+  1600 units across 256 segments, so a quad is 6.25 units, and anything shorter
+  than about three quads shows up as faceting rather than as swell. There used
+  to be a fourth component at 0.46 — a 13.6-unit wavelength — and it is what
+  made the plane need 400 segments and 320,000 triangles. It has moved into the
+  per-fragment chop below, where the same scale costs no vertices at all.
 */
 export const WAVE_GLSL = /* glsl */ `
   float waveHeight(vec2 p, float t) {
@@ -45,7 +46,6 @@ export const WAVE_GLSL = /* glsl */ `
     h += 0.36 * sin(dot(p, vec2( 0.94,  0.34)) * 0.09 + t * 0.62);
     h += 0.25 * sin(dot(p, vec2(-0.41,  0.91)) * 0.15 - t * 0.85);
     h += 0.15 * sin(dot(p, vec2( 0.71, -0.70)) * 0.27 + t * 1.24);
-    h += 0.08 * sin(dot(p, vec2(-0.87, -0.49)) * 0.46 - t * 1.71);
     return h;
   }
 `
@@ -58,8 +58,7 @@ export function waveHeight(x: number, z: number, t: number) {
   return (
     0.36 * Math.sin((x * 0.94 + z * 0.34) * 0.09 + t * 0.62) +
     0.25 * Math.sin((x * -0.41 + z * 0.91) * 0.15 - t * 0.85) +
-    0.15 * Math.sin((x * 0.71 + z * -0.7) * 0.27 + t * 1.24) +
-    0.08 * Math.sin((x * -0.87 + z * -0.49) * 0.46 - t * 1.71)
+    0.15 * Math.sin((x * 0.71 + z * -0.7) * 0.27 + t * 1.24)
   )
 }
 
@@ -157,6 +156,9 @@ export const WAVE_CHOP_CHUNK = /* glsl */ `
   float px = max(length(dFdx(vWaterPos)), length(dFdy(vWaterPos))) * uChopScale;
 
   vec2 g = vec2(0.0);
+  // 0.27 in world terms, picking up the swell component the vertex stage no
+  // longer carries — see the note above WAVE_GLSL.
+  g += chopTerm(p, vec2(-0.87, -0.49), 0.46, 0.075, -1.7, uTime, px);
   g += chopTerm(p, vec2( 0.62,  0.78), 1.10, 0.045,  2.7, uTime, px);
   g += chopTerm(p, vec2(-0.79,  0.61), 1.90, 0.030, -3.4, uTime, px);
   g += chopTerm(p, vec2( 0.31, -0.95), 3.30, 0.018,  4.6, uTime, px);

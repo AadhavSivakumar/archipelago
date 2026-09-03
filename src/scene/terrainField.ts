@@ -28,8 +28,20 @@ import { DISTRICTS, districtCentre, type DistrictId } from './districts'
 */
 
 /** Rows and columns. Unchanged by the grading — only their spacing varies. */
-export const GRID_X = 452
-export const GRID_Z = 576
+/*
+  Cut from 452x576, which was 520,704 triangles — a quarter of everything the
+  scene drew in a frame, and the largest single item in it by half again.
+
+  The grid is graded, so what matters is the quad size where the camera actually
+  is: at the centre of the archipelago this moves from 0.40 world units to 0.53,
+  and at the edge of a district island from 0.75 to 1.00. Both sit far below the
+  scale at which the height field has anything left to say — the fine relief in
+  sampleHeight bottoms out around six units, and everything under that comes
+  from the shader in surface.ts, which is unchanged. What is lost is a little
+  coastline precision, against 43 per cent of the triangles.
+*/
+export const GRID_X = 340
+export const GRID_Z = 434
 
 /** Half-extent of the grid before grading. Sets the dense middle. */
 export const GRID_HALF_X = 90

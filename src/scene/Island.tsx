@@ -187,7 +187,19 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden }: I
 // Wide enough that its edge is always past the fog's far plane — otherwise the
 // horizon shows a square rim of ocean. Grown with the world: the terrain now
 // reaches ±460, and on a narrow viewport framing.ts scales the fog out too.
-const WATER_GEOMETRY = new THREE.PlaneGeometry(1600, 1600, 400, 400)
+/*
+  256 segments rather than 400: 131,000 triangles instead of 320,000.
+
+  The plane stays 1600 units across, because it has to reach past the fog's far
+  plane or the horizon shows a square rim of ocean. Only the sampling changes,
+  from 4-unit quads to 6.25.
+
+  That is under Nyquist for the swell as it was, so the swell changed with it —
+  the 0.46 component, a 13.6-unit wavelength that needed four-unit quads to
+  carry, is gone from shaders/water.ts. What it contributed is now the coarsest
+  of the per-fragment chop terms, which costs no vertices at all.
+*/
+const WATER_GEOMETRY = new THREE.PlaneGeometry(1600, 1600, 256, 256)
 WATER_GEOMETRY.rotateX(-Math.PI / 2)
 
 /*

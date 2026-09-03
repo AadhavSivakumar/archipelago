@@ -47,7 +47,13 @@ function rng(seed: number) {
 
 /** Flattened spheres rather than textured planes: no texture to fetch, and a
  *  billboard quad without one reads as a card, not a cloud. */
-const CLOUD = new THREE.SphereGeometry(1, 28, 20)
+/*
+  16x10, down from 28x20. Eighty-two lobes are drawn, so this was 87,000
+  triangles of soft translucent blob seen from at least 250 units away and
+  through most of the fog. At 300 triangles each the silhouette is the same once
+  the material's 0.46 opacity has had its way with it.
+*/
+const CLOUD = new THREE.SphereGeometry(1, 16, 10)
 const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
   color: '#f6f9fd',
   roughness: 1,

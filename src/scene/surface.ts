@@ -39,6 +39,13 @@ export type WeatherOptions = {
   bump?: number
   /** Roughness variation, absolute. Added to roughnessFactor, then clamped. */
   rough?: number
+  /**
+   * Noise octaves, 1-4. Each one is eight hashes per fragment, so this is the
+   * single biggest lever on what a weathered surface costs to fill. Four is the
+   * default and is right for things seen close; the terrain covers most of the
+   * screen at all times and reads identically at three.
+   */
+  octaves?: number
 }
 
 const DEFAULTS: Required<WeatherOptions> = {
@@ -46,6 +53,7 @@ const DEFAULTS: Required<WeatherOptions> = {
   mottle: 0.18,
   bump: 0.5,
   rough: 0.14,
+  octaves: 4,
 }
 
 /**
@@ -84,7 +92,7 @@ float sfNoise(vec3 p) {
 // leaves a faint grid visible along the axes.
 float sfFbm(vec3 p) {
   float a = 0.5, s = 0.0, n = 0.0;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < SF_OCTAVES; i++) {
     s += a * sfNoise(p);
     n += a;
     p *= 2.03;
@@ -194,6 +202,9 @@ export function weather<M extends THREE.MeshStandardMaterial>(
   material.onBeforeCompile = (shader, renderer) => {
     previous(shader, renderer)
 
+    // A define, not a uniform: the loop bound has to be a constant for the
+    // compiler to unroll it, and unrolled is the whole point of a small count.
+    shader.defines = { ...shader.defines, SF_OCTAVES: String(Math.max(1, Math.min(4, o.octaves))) }
     shader.uniforms.uGrain = { value: o.grain }
     shader.uniforms.uMottle = { value: o.mottle }
     shader.uniforms.uBump = { value: o.bump }
@@ -243,7 +254,9 @@ export function weather<M extends THREE.MeshStandardMaterial>(
   // Without this every weathered material would collide with an unweathered one
   // of the same feature set in the program cache, and whichever compiled first
   // would win for both.
-  material.customProgramCacheKey = () => 'weathered'
+  // The octave count is baked into the source, so materials that differ in it
+  // must not share a compiled program.
+  material.customProgramCacheKey = () => `weathered-${o.octaves}`
   material.needsUpdate = true
   return material
 }

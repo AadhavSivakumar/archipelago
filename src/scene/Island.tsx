@@ -128,14 +128,20 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden }: I
         receiveShadow
         castShadow
       />
-      {lowDetail && (
-        <mesh
-          geometry={islandLodGeometry()}
-          material={ISLAND_LOD_MATERIAL}
-          visible={!hidden}
-          receiveShadow
-        />
-      )}
+      {/*
+        Mounted always, drawn only on the map. If this mesh only existed once
+        the camera had arrived, its program would compile and its 47k vertices
+        would upload on the first frame it was drawn — which is mid-flight, on
+        the way into the Garden, and is a stall exactly where one is most
+        visible. Present from the start, <Preload all> in Scene compiles it and
+        uploads it with everything else, during the boot screen.
+      */}
+      <mesh
+        geometry={islandLodGeometry()}
+        material={ISLAND_LOD_MATERIAL}
+        visible={lowDetail && !hidden}
+        receiveShadow
+      />
       {/*
         Never drawn — a raycast target only. three does not consult `visible`
         when raycasting (Raycaster.intersect checks layers, Mesh.raycast never

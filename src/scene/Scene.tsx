@@ -6,6 +6,7 @@ import {
   Environment,
   Lightformer,
   OrbitControls,
+  Preload,
   Sky,
 } from '@react-three/drei'
 import * as THREE from 'three'
@@ -637,6 +638,25 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
             onCountry(view?.name ?? null)
           }}
         />
+        {/*
+          Compiles every material in the scene — including those on objects
+          currently invisible — in one pass, and uploads their geometry, before
+          the first real frame.
+
+          Without this, three compiles a shader the first time a material is
+          drawn, and a compile is a synchronous stall of anything from tens to
+          hundreds of milliseconds depending on the driver. Several materials
+          here are first drawn only on navigation: the coarse island on the way
+          into the Garden, the country highlight on the first hover, the boat
+          and clouds as the camera turns to them. Each was a hitch at the moment
+          of a camera move. Paid here instead, behind the boot screen, where it
+          was already being paid for everything that IS visible on frame one.
+
+          Inside the Suspense boundary so it runs after the island's worker has
+          delivered and the districts have mounted — earlier, and there would be
+          nothing to compile.
+        */}
+        <Preload all />
       </Suspense>
 
       {/*

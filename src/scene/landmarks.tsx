@@ -753,6 +753,44 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
   const map = fine ?? coarseMap()
   const { geometry: countryGeometry, centres, spans, borders } = map
 
+  /*
+    Build the fine map during idle time at home, so that by the time the Garden
+    is opened it already exists.
+
+    This fetches 79kB gzipped for every visitor, including those who never open
+    the Garden, which the lazy design was written to avoid. The trade is made
+    deliberately: the alternative is doing 80-105ms of geometry work at the
+    moment of arrival, and no amount of deferring moves that off the one
+    interaction it makes worse. requestIdleCallback lets the browser choose a
+    moment when nothing else needs the thread; the timeout fallback is for
+    Safari, which does not have it.
+  */
+  useEffect(() => {
+    // Cast through unknown rather than intersected with Window: lib.dom types
+    // requestIdleCallback as always present, which makes the Safari branch
+    // below unreachable to the compiler and a type error to write.
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+    /*
+      The timeout is not optional, and it was found the hard way: on a machine
+      whose main thread never goes idle — which is exactly the struggling
+      machine this prefetch exists for — requestIdleCallback without one is
+      never called at all. Measured: 45 seconds at home, no request. With a
+      4-second ceiling the browser still prefers a genuinely idle moment and
+      falls back to forcing one, so the map is built either way, and always
+      long before a visitor could have flown to it.
+    */
+    const handle = w.requestIdleCallback
+      ? w.requestIdleCallback(() => void loadFineMap(), { timeout: 4000 })
+      : window.setTimeout(() => void loadFineMap(), 3000)
+    return () => {
+      if (w.requestIdleCallback && w.cancelIdleCallback) w.cancelIdleCallback(handle)
+      else window.clearTimeout(handle)
+    }
+  }, [])
+
   useEffect(() => {
     if (!focused || fine) return
     let live = true

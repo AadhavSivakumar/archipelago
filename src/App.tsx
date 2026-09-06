@@ -257,7 +257,18 @@ export function App() {
               buffer between frames, which is a small per-frame copy. Worth it
               against a flash.
             */
-            gl={{ antialias: true, preserveDrawingBuffer: true }}
+            gl={{
+              antialias: true,
+              preserveDrawingBuffer: true,
+              /*
+                On a laptop with two GPUs the browser picks the integrated one
+                by default for power, and this scene is not a document. Asking
+                for the discrete adapter is a hint the browser may decline, but
+                where it is honoured it is the single largest change in frame
+                time this page can make, and it costs nothing where it is not.
+              */
+              powerPreference: 'high-performance',
+            }}
           >
             <Suspense fallback={null}>
               <Scene

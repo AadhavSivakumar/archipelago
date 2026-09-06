@@ -315,4 +315,12 @@ ISLAND_MATERIAL.onBeforeCompile = (shader) => {
   would have the foam assignment overwrite it outright, silently, with the only
   symptom being terrain that stays smooth.
 */
-weather(ISLAND_MATERIAL, { grain: 0.85, mottle: 0.3, bump: 0.85, rough: 0.16 })
+/*
+  Three octaves rather than four, and only here. The island is the one surface
+  that covers most of the frame in every view, so its fragment shader is the
+  one whose cost is multiplied by the most pixels. The fourth octave is the one
+  at a period of about a tenth of a unit — a quarter of a pixel from the home
+  camera, and faded to nothing there by the footprint fade anyway. It was being
+  computed and thrown away.
+*/
+weather(ISLAND_MATERIAL, { grain: 0.85, mottle: 0.3, bump: 0.85, rough: 0.16, octaves: 3 })

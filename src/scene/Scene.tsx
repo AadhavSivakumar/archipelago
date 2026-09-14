@@ -20,6 +20,7 @@ import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
 import type { SubFocus } from './landmarks'
+import { QUALITY_FOR_TIER, uQuality, type QualityTier } from './quality'
 
 /**
  * Shared by the sky shader and the shadow-casting sun so they agree.
@@ -395,6 +396,76 @@ function Haze({
   return null
 }
 
+/**
+ * Matches the scene to the machine, using only switches that cannot reallocate.
+ *
+ * This is the replacement for the PerformanceMonitor that was removed. That one
+ * answered a slow frame by changing the pixel ratio, which reallocates the
+ * drawing buffer and every render target behind it and was the black flash. So
+ * the rule here is absolute: nothing the governor touches may allocate. It sets
+ * one shared uniform (quality.ts) and flips `visible` on objects that already
+ * exist and are already compiled. Every one of those is a boolean or a float
+ * write, and the GPU does not know anything happened until the next draw.
+ *
+ * Time-based rather than frame-based, in both directions. A frame-count
+ * threshold means "after N bad frames", and N bad frames take a different
+ * amount of wall time on every machine — the machine that needs the governor
+ * most is the one where N frames take longest. Accumulating seconds instead
+ * makes the reaction time the same everywhere.
+ *
+ * The asymmetry is the hysteresis. Stepping down needs 1.5 seconds sustained
+ * over 24ms; stepping back up needs 6 seconds under 13ms. Those bands do not
+ * overlap and the up-band is far below the down-band, so a machine that is
+ * just barely coping settles at one tier and stays there instead of hunting.
+ *
+ * Suspended while a flight is airborne: a flight is the heaviest thing the
+ * scene does AND the one moment a visibility swap would be noticed. It keeps
+ * measuring — a flight that overloads the machine is exactly the evidence
+ * wanted — but it acts once the camera has parked.
+ *
+ * Deltas are clamped at 100ms. A background tab hands back one enormous frame
+ * on return, and it must not read as a machine in trouble.
+ */
+function QualityGovernor({ flying, onTier }: { flying: boolean; onTier: (tier: QualityTier) => void }) {
+  const state = useRef({ tier: 0 as QualityTier, ema: 16, over: 0, under: 0, warm: 0 })
+
+  useFrame((_, delta) => {
+    const s = state.current
+    const ms = Math.min(delta, 0.1) * 1000
+
+    // The first seconds are the reveal, the shader precompile and the worker
+    // handing over the island. None of that is the steady state being judged.
+    s.warm += ms
+    if (s.warm < 5000) return
+
+    // Exponential average with a ~20-frame memory: quick enough to notice a
+    // change, slow enough that one bad frame is not a verdict.
+    s.ema += (ms - s.ema) * 0.05
+
+    if (s.ema > 24) { s.over += ms; s.under = 0 }
+    else if (s.ema < 13) { s.under += ms; s.over = 0 }
+    else { s.over = 0; s.under = 0 }
+
+    if (flying) return
+
+    let next = s.tier
+    if (s.over > 1500 && s.tier < 2) next = (s.tier + 1) as QualityTier
+    else if (s.under > 6000 && s.tier > 0) next = (s.tier - 1) as QualityTier
+    if (next === s.tier) return
+
+    s.tier = next
+    s.over = 0
+    s.under = 0
+    uQuality.value = QUALITY_FOR_TIER[next]
+    // One line in the console per change, so anyone reporting "it is slow"
+    // can say which tier their machine settled at.
+    console.info(`[archipelago] quality tier ${next} (frame ${s.ema.toFixed(1)}ms)`)
+    onTier(next)
+  })
+
+  return null
+}
+
 function FixedDpr() {
   const setDpr = useThree((s) => s.setDpr)
   useEffect(() => {
@@ -554,6 +625,9 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
   const [flying, setFlying] = useState(false)
   const idle = useIdle()
 
+  /** Chosen by QualityGovernor from the measured frame time. */
+  const [tier, setTier] = useState<QualityTier>(0)
+
   /*
     Captured at mount. Arriving on a shared #district link means CameraRig parks
     at that district on frame one — so the reveals, which are keyed to mount
@@ -585,7 +659,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         nor the birds nor the boat is on screen with the camera five units above
         a plate — they are all above or beyond it.
       */}
-      <Ambient visible={!stripped} />
+      <Ambient visible={!stripped && tier < 1} />
 
       {/*
         The island's geometry is built on a worker, so Island suspends. Sky,
@@ -611,7 +685,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           occluderRef={occluder}
           deepLinked={deepLinked}
           onPick={onFocus}
-          lowDetail={mapDetail}
+          lowDetail={mapDetail || tier >= 1}
           hidden={stripped}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
@@ -715,6 +789,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
       />
 
       <Haze close={mapDetail} scale={scale} onSettled={setStripped} />
+      <QualityGovernor flying={flying} onTier={setTier} />
       <FixedDpr />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />

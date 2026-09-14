@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { uQuality } from './quality'
 
 /**
  * Surface grain.
@@ -105,6 +106,7 @@ uniform float uGrain;
 uniform float uMottle;
 uniform float uBump;
 uniform float uRough;
+uniform float uQuality;
 `
 
 /**
@@ -174,7 +176,7 @@ const BUMP_GLSL = /* glsl */ `
   // through it produces an enormous gradient and a black rim, so skip it.
   if (abs(det) > 1e-7) {
     vec3 grad = (r1 * dhdx + r2 * dhdy) / det;
-    normal = normalize(normal - uBump * sfFade * grad);
+    normal = normalize(normal - uBump * uQuality * sfFade * grad);
   }
 }
 `
@@ -205,6 +207,8 @@ export function weather<M extends THREE.MeshStandardMaterial>(
     // A define, not a uniform: the loop bound has to be a constant for the
     // compiler to unroll it, and unrolled is the whole point of a small count.
     shader.defines = { ...shader.defines, SF_OCTAVES: String(Math.max(1, Math.min(4, o.octaves))) }
+    // The shared dial, by reference — see quality.ts.
+    shader.uniforms.uQuality = uQuality
     shader.uniforms.uGrain = { value: o.grain }
     shader.uniforms.uMottle = { value: o.mottle }
     shader.uniforms.uBump = { value: o.bump }
@@ -236,16 +240,25 @@ export function weather<M extends THREE.MeshStandardMaterial>(
         '#include <color_fragment>',
         /* glsl */ `
         #include <color_fragment>
-        float sfGrain = sfFbm(vSurfPos * uGrain);
+        /*
+          The whole of the grain hangs off this one branch. At quality 0 the
+          noise is never sampled: sfGrain stays at its midpoint, so the mottle
+          below is a multiply by one, the roughness jitter is zero, and the
+          bump's derivatives of a constant are zero. The branch is on a
+          uniform, so every fragment of the draw takes the same side and the
+          GPU pays a compare — not the sixteen to thirty-two hashes it skips.
+        */
+        float sfGrain = 0.5;
+        if (uQuality > 0.0) sfGrain = sfFbm(vSurfPos * uGrain);
         vec3 sfBase = diffuseColor.rgb;
-        diffuseColor.rgb *= 1.0 + (sfGrain - 0.5) * uMottle;
+        diffuseColor.rgb *= 1.0 + (sfGrain - 0.5) * uMottle * uQuality;
         `,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `
         #include <roughnessmap_fragment>
-        roughnessFactor = clamp(roughnessFactor + (sfGrain - 0.5) * uRough, 0.03, 1.0);
+        roughnessFactor = clamp(roughnessFactor + (sfGrain - 0.5) * uRough * uQuality, 0.03, 1.0);
         `,
       )
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${BUMP_GLSL}`)

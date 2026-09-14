@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { uQuality } from '../scene/quality'
 
 /**
  * The sea surface, as one definition.
@@ -135,7 +136,10 @@ export const WAVE_CHOP_GLSL = /* glsl */ `
  * accurate to well within the error the swell itself introduces.
  */
 export const WAVE_CHOP_CHUNK = /* glsl */ `
-{
+// Skipped outright at quality 0 — see quality.ts. Five cosines, a modulating
+// sixth and two derivative lengths per fragment, across the largest surface in
+// the frame, is the single most expensive thing the water does.
+if (uChopStrength * uQuality > 0.0) {
   /*
     uChopScale compresses the whole ripple field into a smaller patch of world,
     so the same wave set can dress both the open ocean and the pool inlaid in
@@ -194,7 +198,7 @@ export const WAVE_CHOP_CHUNK = /* glsl */ `
     matrix the fragment shader is already given.
   */
   mat3 wv = mat3(viewMatrix);
-  normal = normalize(normal - (wv[0] * g.x + wv[2] * g.y) * uChopStrength);
+  normal = normalize(normal - (wv[0] * g.x + wv[2] * g.y) * uChopStrength * uQuality);
 }
 `
 
@@ -218,6 +222,7 @@ export function water(
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime
+    shader.uniforms.uQuality = uQuality
     shader.uniforms.uChopScale = { value: chopScale }
     shader.uniforms.uChopStrength = { value: chopStrength }
 
@@ -241,6 +246,7 @@ export function water(
       'uniform float uTime;',
       'uniform float uChopScale;',
       'uniform float uChopStrength;',
+      'uniform float uQuality;',
       'varying vec2 vWaterPos;',
       WAVE_CHOP_GLSL,
       shader.fragmentShader,

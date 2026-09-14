@@ -782,9 +782,18 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
       falls back to forcing one, so the map is built either way, and always
       long before a visitor could have flown to it.
     */
+    /*
+      A failed prefetch is silent on purpose. The import is a network request,
+      and on a flaky connection it can fail; nothing is cached on failure (see
+      loadFineMap), so the focused path below simply tries again when the
+      Garden is opened, and the coarse map shows until it succeeds. An
+      unhandled rejection here would be an error in the console for a state the
+      app handles fine.
+    */
+    const prefetch = () => void loadFineMap().catch(() => {})
     const handle = w.requestIdleCallback
-      ? w.requestIdleCallback(() => void loadFineMap(), { timeout: 4000 })
-      : window.setTimeout(() => void loadFineMap(), 3000)
+      ? w.requestIdleCallback(prefetch, { timeout: 4000 })
+      : window.setTimeout(prefetch, 3000)
     return () => {
       if (w.requestIdleCallback && w.cancelIdleCallback) w.cancelIdleCallback(handle)
       else window.clearTimeout(handle)
@@ -812,9 +821,13 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
       and it sharpens a beat later while the camera is still.
     */
     const start = setTimeout(() => {
-      loadFineMap().then((built) => {
-        if (live) setFine(built)
-      })
+      loadFineMap()
+        .then((built) => {
+          if (live) setFine(built)
+        })
+        // Same reasoning as the prefetch: the coarse map is a complete
+        // fallback, so a failed fetch is not an error the visitor needs to see.
+        .catch(() => {})
     }, 1700)
 
     return () => {

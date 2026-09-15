@@ -1,7 +1,14 @@
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useContext, useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
-import { BlendFunction, SMAAPreset, ToneMappingMode } from 'postprocessing'
+import {
+  Bloom,
+  EffectComposer,
+  EffectComposerContext,
+  SMAA,
+  ToneMapping,
+  Vignette,
+} from '@react-three/postprocessing'
+import { BlendFunction, SMAAEffect, SMAAPreset, ToneMappingMode } from 'postprocessing'
 import {
   Environment,
   Lightformer,
@@ -502,8 +509,57 @@ function FixedDpr() {
   invisible to it. Everything inside is static, so there is nothing to close
   over and no reason for it ever to be rebuilt.
 */
+/**
+ * Switches the antialiasing pass off at the lowest quality tier.
+ *
+ * SMAA is three full-screen passes — edge detection, blend-weight calculation,
+ * and the blend itself — on every frame. On an integrated GPU that is commonly
+ * the single largest fill cost in a chain like this one, larger than the scene.
+ * The quality governor cannot reach it through props: GRADING is a constant
+ * element precisely so that nothing ever re-renders it. So this sits INSIDE the
+ * composer, takes the composer from the context the wrapper already provides,
+ * and reads the same shared dial the shaders do.
+ *
+ * `pass.enabled = false` is the whole mechanism. EffectComposer.render skips a
+ * disabled pass and copies through if it was the last one; nothing is disposed
+ * and nothing is allocated, which is the rule every governor switch obeys. The
+ * pass is found by the type of effect it carries rather than by index, because
+ * the wrapper decides how effects are grouped into passes and that grouping is
+ * not part of its contract.
+ *
+ * Aliasing on a machine that cannot hold a frame is the right trade: a jagged
+ * edge is a still image's flaw, and the frame it buys back is motion's.
+ */
+function PassGovernor() {
+  const { composer } = useContext(EffectComposerContext)
+  const smaa = useRef<{ enabled: boolean } | null>(null)
+
+  useEffect(() => {
+    if (!composer) return
+    type PassLike = { enabled: boolean; effects?: unknown[] }
+    const found = (composer.passes as PassLike[]).find(
+      (pass) => Array.isArray(pass.effects) && pass.effects.some((e) => e instanceof SMAAEffect),
+    )
+    smaa.current = found ?? null
+    return () => {
+      // Never leave a pass disabled if this unmounts mid-tier.
+      if (found) found.enabled = true
+    }
+  }, [composer])
+
+  useFrame(() => {
+    const pass = smaa.current
+    if (!pass) return
+    const want = uQuality.value > 0
+    if (pass.enabled !== want) pass.enabled = want
+  })
+
+  return null
+}
+
 const GRADING = (
   <EffectComposer multisampling={0} enableNormalPass={false}>
+    <PassGovernor />
     <Bloom intensity={0.42} luminanceThreshold={0.82} luminanceSmoothing={0.28} mipmapBlur />
     <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
     <Vignette offset={0.32} darkness={0.42} blendFunction={BlendFunction.NORMAL} />

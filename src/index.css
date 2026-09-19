@@ -420,13 +420,14 @@ canvas {
 }
 
 /*
-  What a country is, in the corner the district dossier normally occupies.
+  What the chosen thing is, in the corner the district dossier normally
+  occupies. A country, an event, a god, a work of art — one card for all.
 
   Same geometry as .dossier deliberately: they never appear together, and a
   reader should not have to re-find the place where "what am I looking at" is
   answered just because the answer changed subject.
 */
-.country-card {
+.wiki-card {
   position: fixed;
   right: 22px;
   bottom: 26px;
@@ -444,7 +445,16 @@ canvas {
   animation: panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-.country-card__title {
+.wiki-card__kicker {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.wiki-card__title {
   margin: 0 0 10px;
   font-size: 17px;
   font-weight: 600;
@@ -454,19 +464,19 @@ canvas {
   color: #ffd978;
 }
 
-.country-card__body {
+.wiki-card__body {
   margin: 0;
   font-size: 13px;
   line-height: 1.65;
   color: var(--ink-dim);
 }
 
-.country-card__body--wait {
+.wiki-card__body--wait {
   font-style: italic;
   opacity: 0.75;
 }
 
-.country-card__link {
+.wiki-card__link {
   display: inline-block;
   margin-top: 14px;
   font-size: 12px;
@@ -477,13 +487,13 @@ canvas {
   border-bottom: 1px solid rgba(255, 217, 120, 0.4);
 }
 
-.country-card__link:hover,
-.country-card__link:focus-visible {
+.wiki-card__link:hover,
+.wiki-card__link:focus-visible {
   border-bottom-color: #ffd978;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .country-card {
+  .wiki-card {
     animation: none;
   }
 }
@@ -582,7 +592,8 @@ canvas {
   between the pointer and the map — a label that blocks clicks on the country
   beneath it makes the country next to it hard to reach.
 */
-.country {
+.country,
+.exhibit {
   padding: 5px 11px;
   font: inherit;
   font-size: 13px;

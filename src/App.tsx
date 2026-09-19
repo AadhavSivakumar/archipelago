@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { CountryCard } from './components/CountryCard'
+import { WikiCard } from './components/WikiCard'
+import type { Subject } from './components/wikipedia'
 import { DebugOverlay } from './components/DebugOverlay'
 import { DistrictDossier } from './components/DistrictDossier'
 import { telemetry } from './scene/telemetry'
@@ -52,8 +53,8 @@ export function App() {
   */
   const [leavingMap, setLeavingMap] = useState(false)
 
-  /** The country chosen on the world map, if any. */
-  const [country, setCountry] = useState<string | null>(null)
+  /** Whatever is chosen inside the focused district, if anything. */
+  const [subject, setSubject] = useState<Subject | null>(null)
 
   const leaveDistrict = useCallback(() => {
     if (!immersive) {
@@ -203,7 +204,7 @@ export function App() {
         showing the Garden's own blurb above a paragraph about Chile would be
         answering a question nobody asked twice over.
       */}
-      {country ? <CountryCard name={country} /> : <DistrictDossier focus={focus} />}
+      {subject ? <WikiCard {...subject} /> : <DistrictDossier focus={focus} />}
 
       {/*
         The boundary wraps the canvas alone — see ErrorBoundary's own note. The
@@ -301,7 +302,7 @@ export function App() {
               onFocus={setFocus}
               onImmersive={setImmersive}
               forceWorld={leavingMap}
-              onCountry={setCountry}
+              onSubject={setSubject}
             />
             </Suspense>
           </Canvas>

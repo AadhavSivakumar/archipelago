@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, prefersReducedMotion, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtView, type DistrictId } from './districts'
-import type { SubFocus } from './landmarks'
+import type { SubFocus } from './exhibits'
 import { fovForAspect, frameScale } from './framing'
 
 /** The subset of OrbitControls this rig touches. */
@@ -46,6 +46,36 @@ function viewFor(id: DistrictId, scale: number, sub?: SubFocus | null) {
   const d = DISTRICTS.find((x) => x.id === id)!
   const base = districtView(d, scale)
   if (!sub) return base
+
+  if (d.framing !== 'plan') {
+    /*
+      A thing on an ordinary island: come in along the district's own seaward
+      bearing, closer for smaller things. The bearing is kept so that choosing
+      an exhibit reads as approaching it, not as circling to a new side of the
+      island — and so the labels laid out to face that bearing still do.
+
+      Height follows the exhibit, because the Ideology Isles float: a god's
+      family tree hangs several units above the plateau, and framing it at
+      plateau height would put the camera looking up at its underside.
+    */
+    const extent = Math.max(sub.spanX, sub.spanZ)
+    const distance = Math.min(Math.max(extent * 3.2, 7), 30) * scale
+    const ox = Math.cos(d.seaward)
+    const oz = Math.sin(d.seaward)
+    // How steeply to look down. A stone on the ground reads best from above
+    // it; a family tree hanging in the air is a panel, and wants to be faced.
+    const elevation = sub.elevation ?? 0.6
+    const reach = distance * Math.sqrt(Math.max(0.2, 1 - elevation * elevation))
+    const ty = d.pad + (sub.y ?? 0)
+    return {
+      position: {
+        x: d.x + sub.x + ox * reach,
+        y: ty + distance * elevation,
+        z: d.z + sub.z + oz * reach,
+      },
+      target: { x: d.x + sub.x, y: ty, z: d.z + sub.z },
+    }
+  }
 
   /*
     Frame one country rather than the whole projection.
@@ -130,6 +160,8 @@ export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
   const ceiling = useRef<number | null>(null)
   /** True only while the opening flight is airborne. */
   const skippable = useRef(false)
+  /** The district of the previous flight, so a hop within one can be told apart. */
+  const lastFocus = useRef<DistrictId | null>(null)
 
   /*
     Any deliberate input ends the opening flight early. Without this the first
@@ -313,8 +345,17 @@ export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
       both correct and calm.
     */
     const overhead = focus !== null && DISTRICTS.find((x) => x.id === focus)?.framing === 'plan'
+    /*
+      A hop within the district the camera is already in — choosing an exhibit,
+      stepping to the next one — is also straight. The arc exists to carry the
+      camera around the island between two districts; within one, the island is
+      what is being looked at, and there is nothing between the camera and a
+      marker a few units away to sweep around. An arc there is a detour.
+    */
+    const sameDistrict = focus !== null && focus === lastFocus.current
+    lastFocus.current = focus
 
-    if (intro || overhead) {
+    if (intro || overhead || sameDistrict) {
       // Straight pull-in: no island between the camera and its destination to
       // sweep around.
       tl.to(

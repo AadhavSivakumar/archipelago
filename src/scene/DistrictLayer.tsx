@@ -4,7 +4,8 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtPosition, type DistrictId } from './districts'
-import { LANDMARKS, type SubFocus } from './landmarks'
+import { LANDMARKS } from './landmarks'
+import type { SubFocus } from './exhibits'
 import { setCursor } from './cursor'
 
 type Props = {

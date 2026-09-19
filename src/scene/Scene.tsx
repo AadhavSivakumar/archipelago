@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   Environment,
@@ -17,7 +17,8 @@ import { frameScale } from './framing'
 import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
-import type { SubFocus } from './landmarks'
+import type { SubFocus } from './exhibits'
+import type { Subject } from '../components/wikipedia'
 import { QUALITY_FOR_TIER, uQuality, type QualityTier } from './quality'
 import { telemetry } from './telemetry'
 
@@ -53,8 +54,8 @@ type Props = {
    * in App.
    */
   forceWorld: boolean
-  /** The country chosen on the world map, for the page to describe. */
-  onCountry: (name: string | null) => void
+  /** Whatever was chosen inside a district, for the page to describe. */
+  onSubject: (subject: Subject | null) => void
 }
 
 /**
@@ -434,13 +435,15 @@ function QualityGovernor({ flying, onTier }: { flying: boolean; onTier: (tier: Q
 
     // The first seconds are the reveal, the shader precompile and the worker
     // handing over the island. None of that is the steady state being judged.
-    s.warm += ms
-    if (s.warm < 5000) return
-
     // Exponential average with a ~20-frame memory: quick enough to notice a
-    // change, slow enough that one bad frame is not a verdict.
+    // change, slow enough that one bad frame is not a verdict. Measured from
+    // the first frame so the readout is honest during the warm-up; only the
+    // ACTING waits.
     s.ema += (ms - s.ema) * 0.05
     telemetry.frameMs = s.ema
+
+    s.warm += ms
+    if (s.warm < 5000) return
 
     if (s.ema > 24) { s.over += ms; s.under = 0 }
     else if (s.ema < 13) { s.under += ms; s.over = 0 }
@@ -578,7 +581,7 @@ function MapDetail({ active, onChange }: { active: boolean; onChange: (low: bool
   return null
 }
 
-export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Props) {
+export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Props) {
   /*
     True while the camera is down among the Geographical Garden's map. Drives
     every level-of-detail decision in this file: the coarse island, the dropped
@@ -610,6 +613,21 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
     itself.
   */
   const [subFocus, setSubFocus] = useState<SubFocus | null>(null)
+  /*
+    Stable on purpose. Every district's landmark takes this, and the Garden
+    re-runs its leave-district effect whenever it changes — an inline arrow
+    here meant that effect fired on every Scene render, and the first time
+    another district raised a sub-focus, the Garden (unfocused, as it should
+    be) answered by clearing it. The card vanished and the flight was killed
+    on the same frame they began.
+  */
+  const handleSubFocus = useCallback(
+    (view: SubFocus | null) => {
+      setSubFocus(view)
+      onSubject(view ? { name: view.name, article: view.article, kicker: view.kicker } : null)
+    },
+    [onSubject],
+  )
   // Held here so the labels can occlude against the landmass they sit on. This
   // is the coarse proxy, not the display mesh — see islandOccluderGeometry.
   const occluder = useRef<THREE.Mesh>(null!)
@@ -707,10 +725,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
             districts' worth of small draw calls are issued to render nothing.
           */
           soloDistrict={stripped ? focus : null}
-          onSubFocus={(view) => {
-            setSubFocus(view)
-            onCountry(view?.name ?? null)
-          }}
+          onSubFocus={handleSubFocus}
         />
         {/*
           Compiles every material in the scene — including those on objects
@@ -834,7 +849,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
           low limit until the flight lands means the tween owns the whole path
           in both directions.
         */
-        minDistance={focus === 'geography' || flying ? 1.2 : 18}
+        minDistance={focus === 'geography' || flying ? 1.2 : subFocus ? 4 : 18}
         /*
           The wheel is dead on the world map.
 

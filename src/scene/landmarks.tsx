@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html, Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
@@ -30,6 +30,8 @@ import { PANTHEONS, type Pantheon } from '../content/pantheons'
 import { layoutTree } from './familyTree'
 import { MEDIA } from '../content/artworks'
 import { SUBJECTS } from '../content/sciences'
+import { groupOf } from '../content/navigation'
+import { publishView, select, useDistrictSelection } from '../state/selection'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 // ---------------------------------------------------------------------------
@@ -128,17 +130,6 @@ export type LandmarkProps = {
    * handler would swallow.
    */
   focused: boolean
-  /**
-   * Reports what the camera should frame within this district, or null for the
-   * district as a whole.
-   *
-   * Only the Geographical Garden raises it, when a country is chosen: the
-   * camera then flies down to that country rather than staying on the whole
-   * projection. Threaded through LandmarkProps rather than special-cased in
-   * DistrictLayer because the alternative is DistrictLayer knowing which
-   * district has countries in it.
-   */
-  onSubFocus?: (view: SubFocus | null) => void
 }
 
 /** A place within a district worth flying to, in district-local units. */
@@ -579,17 +570,16 @@ function treeAtlas(p: Pantheon): LabelAtlas {
 
 const NO_LINES = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
 
-export function IdeologyIsles({ d, focused, onSubFocus }: LandmarkProps) {
+export function IdeologyIsles({ d, focused }: LandmarkProps) {
   const orbit = useRef<THREE.Group>(null!)
   useFrame((_, dt) => {
     // Held still while the district is focused; see the note on the islets.
     if (!focused) orbit.current.rotation.y += dt * ORBIT_SPEED
   })
 
-  const [pantheon, setPantheon] = useState(-1)
-  const [deity, setDeity] = useState(-1)
-  /** Where the chosen islet was, in district space, when it was chosen. */
-  const [anchor, setAnchor] = useState<[number, number, number] | null>(null)
+  const selection = useDistrictSelection(d.id)
+  const pantheon = selection?.group ?? -1
+  const deity = selection?.item ?? -1
 
   /** An islet's authored position, carried round by the orbit. */
   const islet = useCallback((it: Exhibit): [number, number, number] => {
@@ -609,13 +599,19 @@ export function IdeologyIsles({ d, focused, onSubFocus }: LandmarkProps) {
   )
 
   const pickPantheon = useCallback(
-    (i: number) => {
-      setPantheon(i)
-      setDeity(-1)
-      setAnchor(i >= 0 ? islet(ISLETS[i]) : null)
-    },
-    [islet],
+    (i: number) => select(i < 0 ? null : { district: d.id, group: i, item: -1 }),
+    [d.id],
   )
+  const pickDeity = useCallback(
+    (i: number) => select({ district: d.id, group: pantheon, item: i }),
+    [d.id, pantheon],
+  )
+  /*
+    Where the chosen islet is, in district space. Read from the orbit's
+    current rotation, which is safe because the orbit only turns while the
+    district is unfocused, and nothing can be chosen then.
+  */
+  const anchor = useMemo(() => (pantheon >= 0 ? islet(ISLETS[pantheon]) : null), [pantheon, islet])
 
   const tree = pantheon >= 0 ? TREES[pantheon] : null
   // Left to right as seen from the seaward bearing: the camera's right vector.
@@ -659,6 +655,12 @@ export function IdeologyIsles({ d, focused, onSubFocus }: LandmarkProps) {
     pantheon rather than to nothing, because the tree is still up.
   */
   const pantheonView = useRef<SubFocus | null>(null)
+  // A god let go of with its pantheon still chosen: back to the pantheon. The
+  // islets publish their own view when the pantheon changes; this covers the
+  // step down, which changes nothing they watch.
+  useLayoutEffect(() => {
+    if (pantheon >= 0 && deity < 0 && pantheonView.current) publishView(pantheonView.current)
+  }, [pantheon, deity])
 
   return (
     <ExhibitHall focused={focused} onClear={() => pickPantheon(-1)}>
@@ -700,7 +702,7 @@ export function IdeologyIsles({ d, focused, onSubFocus }: LandmarkProps) {
           onPick={pickPantheon}
           onSubFocus={(view) => {
             pantheonView.current = view
-            if (deity < 0) onSubFocus?.(view)
+            if (deity < 0) publishView(view)
           }}
           place={treeCentre}
         />
@@ -722,8 +724,7 @@ export function IdeologyIsles({ d, focused, onSubFocus }: LandmarkProps) {
             highlight="#ffffff"
             keys={pantheon >= 0}
             picked={deity}
-            onPick={setDeity}
-            onSubFocus={(view) => onSubFocus?.(view ?? pantheonView.current)}
+            onPick={pickDeity}
             castShadow={false}
           />
           <InstancedLabels atlas={treeAtlas(PANTHEONS[pantheon])} placements={names} />
@@ -948,12 +949,16 @@ const ZIGGURAT_SCALE = 0.58
 const OBELISK_SHAFT = new THREE.CylinderGeometry(0.42, 0.62, 7.4, 4)
 const OBELISK_CAP = new THREE.ConeGeometry(0.6, 1.3, 4)
 
-export function HistoricalHabitat({ d, focused, onSubFocus }: LandmarkProps) {
+export function HistoricalHabitat({ d, focused }: LandmarkProps) {
   const timeline = useMemo(() => layoutTimeline(d), [d])
-  const [picked, setPicked] = useState(-1)
+  const picked = useDistrictSelection(d.id)?.item ?? -1
+  const pick = useCallback(
+    (i: number) => select(i < 0 ? null : { district: d.id, group: groupOf(d.id, i), item: i }),
+    [d.id],
+  )
 
   return (
-    <ExhibitHall focused={focused} onClear={() => setPicked(-1)}>
+    <ExhibitHall focused={focused} onClear={() => pick(-1)}>
       <group scale={ZIGGURAT_SCALE}>
         <Instances geometry={UNIT_BOX} material={mat.sandstone} limit={ZIGGURAT_STEPS.length + 1}>
           {ZIGGURAT_STEPS.map((s, i) => (
@@ -984,8 +989,7 @@ export function HistoricalHabitat({ d, focused, onSubFocus }: LandmarkProps) {
         extent={3.0}
         marker={{ geometry: HALO, material: ACCENT.history }}
         picked={picked}
-        onPick={setPicked}
-        onSubFocus={onSubFocus}
+        onPick={pick}
       />
 
       {/* Years are for someone standing among the stones; eras read from the
@@ -1163,7 +1167,7 @@ const MAP_SEA_MAT = water(
 */
 let landMat: THREE.MeshStandardMaterial | null = null
 
-export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
+export function GeographicalGarden({ d, focused }: LandmarkProps) {
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
   const material = useMemo(() => (landMat ??= landMaterial()), [])
 
@@ -1271,45 +1275,38 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
     uniforms in worldMap.ts, so following the pointer across the map costs two
     float writes rather than a React render per mouse move.
   */
-  const [picked, setPicked] = useState(-1)
+  const picked = useDistrictSelection(d.id)?.item ?? -1
 
-  // Leaving the district must not leave a country lit up behind it, and coming
-  // back to it should start clean rather than resuming a selection made before
-  // a trip to the Alps.
+  // Leaving the district must not leave a country lit up behind it. The
+  // selection itself is cleared by the page when focus changes.
   useEffect(() => {
     if (!focused) uHoverCountry.value = -1
   }, [focused])
-  useEffect(() => {
-    // Only when a country WAS chosen: the other districts raise sub-focuses of
-    // their own, and this district — unfocused while they do — must not answer
-    // one by announcing that nothing is chosen.
-    if (focused || picked < 0) return
-    setPicked(-1)
-    uPickedCountry.value = -1
-    onSubFocus?.(null)
-  }, [focused, picked, onSubFocus])
 
   /*
-    Choosing a country, in one place, so the highlight uniform, the label state
-    and the camera can never disagree about which one it is. Passing -1 is how
-    everything says "none".
+    The chosen country: lit in the shader, and published as somewhere to fly
+    and something to describe. From the state rather than from the click, so
+    that every route to it — a click on the map, a name in the strip — does
+    the same thing; a layout effect, so the flight starts in the same commit
+    as the highlight.
   */
-  const choose = (id: number) => {
-    setPicked(id)
-    uPickedCountry.value = id
-    onSubFocus?.(
-      id < 0
-        ? null
-        : {
-            x: centres[id][0],
-            z: centres[id][1],
-            spanX: spans[id][0],
-            spanZ: spans[id][1],
-            name: COUNTRIES[id].name,
-            article: countryArticle(COUNTRIES[id].name),
-          },
-    )
-  }
+  useLayoutEffect(() => {
+    uPickedCountry.value = picked
+    if (picked < 0) return
+    publishView({
+      x: centres[picked][0],
+      z: centres[picked][1],
+      spanX: spans[picked][0],
+      spanZ: spans[picked][1],
+      name: COUNTRIES[picked].name,
+      article: countryArticle(COUNTRIES[picked].name),
+    })
+    // Not on the map's centres: the fine map arriving mid-selection moves a
+    // centroid by a hair, which is not a reason to fly again.
+  }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Choosing a country, in one place. -1 is how everything says "none". */
+  const choose = (id: number) => select(id < 0 ? null : { district: d.id, group: 0, item: id })
 
   return (
     /*
@@ -1711,7 +1708,7 @@ function layoutShoreWalk(d: District): ShoreWalk {
   return { stations, walk, atlas, labels }
 }
 
-export function ScientificShores({ d, focused, onSubFocus }: LandmarkProps) {
+export function ScientificShores({ d, focused }: LandmarkProps) {
   /*
     Which way the open water lies. Both the jetty and the lighthouse run along
     it, so it has to be right or the jetty walks inland.
@@ -1761,10 +1758,14 @@ export function ScientificShores({ d, focused, onSubFocus }: LandmarkProps) {
   const deckMid = jetty[Math.floor(jetty.length / 2)]
 
   const shore = useMemo(() => layoutShoreWalk(d), [d])
-  const [picked, setPicked] = useState(-1)
+  const picked = useDistrictSelection(d.id)?.item ?? -1
+  const pick = useCallback(
+    (i: number) => select(i < 0 ? null : { district: d.id, group: 0, item: i }),
+    [d.id],
+  )
 
   return (
-    <ExhibitHall focused={focused} onClear={() => setPicked(-1)}>
+    <ExhibitHall focused={focused} onClear={() => pick(-1)}>
       <group position={[-3.4, 0, -2.2]}>
         <mesh geometry={OBS_BASE} position={[0, 0.5, 0]} material={mat.stone} />
         <mesh geometry={OBS_TOWER} position={[0, 3.5, 0]} material={mat.marble} />
@@ -1801,8 +1802,7 @@ export function ScientificShores({ d, focused, onSubFocus }: LandmarkProps) {
         extent={2.2}
         marker={{ geometry: STATION_HALO, material: ACCENT.science }}
         picked={picked}
-        onPick={setPicked}
-        onSubFocus={onSubFocus}
+        onPick={pick}
       />
       <InstancedLabels atlas={shore.atlas} placements={shore.labels} fade={[22, 40]} billboard={false} />
 
@@ -2007,7 +2007,7 @@ const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
   lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62),
 )
 
-export function ArtisticArboretum({ d, focused, onSubFocus }: LandmarkProps) {
+export function ArtisticArboretum({ d, focused }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
   useFrame((_, dt) => {
     knot.current.rotation.y += dt * 0.35
@@ -2018,10 +2018,14 @@ export function ArtisticArboretum({ d, focused, onSubFocus }: LandmarkProps) {
   // field of them.
   const grove = useMemo(() => scatter(d, 20, 9.4, 12.2, 0xa27), [d])
   const galleries = useMemo(() => layoutGalleries(d), [d])
-  const [picked, setPicked] = useState(-1)
+  const picked = useDistrictSelection(d.id)?.item ?? -1
+  const pick = useCallback(
+    (i: number) => select(i < 0 ? null : { district: d.id, group: groupOf(d.id, i), item: i }),
+    [d.id],
+  )
 
   return (
-    <ExhibitHall focused={focused} onClear={() => setPicked(-1)}>
+    <ExhibitHall focused={focused} onClear={() => pick(-1)}>
       {/* The amphitheatre, at the centre and a little smaller than it was,
           with the sculpture on its stage. */}
       <group position={[0, 0, 0.4]} rotation={[0, -0.5, 0]} scale={0.72}>
@@ -2072,8 +2076,7 @@ export function ArtisticArboretum({ d, focused, onSubFocus }: LandmarkProps) {
         extent={2.2}
         marker={{ geometry: GALLERY_HALO, material: ACCENT.art }}
         picked={picked}
-        onPick={setPicked}
-        onSubFocus={onSubFocus}
+        onPick={pick}
       />
       <InstancedLabels atlas={galleries.mediaAtlas} placements={galleries.media} fade={[60, 95]} />
 
@@ -2360,11 +2363,24 @@ export function AnthropologicAlps({ d }: LandmarkProps) {
 
 // ===========================================================================
 
-export const LANDMARKS: Record<DistrictId, (props: LandmarkProps) => React.JSX.Element> = {
-  ideology: IdeologyIsles,
-  history: HistoricalHabitat,
-  geography: GeographicalGarden,
-  science: ScientificShores,
-  art: ArtisticArboretum,
-  anthropology: AnthropologicAlps,
+/*
+  Memoised, and this is a matter of responsiveness rather than tidiness.
+
+  A selection lives in the page's state, so every choice — from the strip or
+  from a stone — re-renders the page, which re-renders the canvas, which
+  re-renders every district. Six districts are several hundred components,
+  the trees and columns among them, and React works through them in slices
+  between frames; on a slow machine that is a visible pause between the click
+  and the island answering it. With the components memoised, a choice
+  re-renders the one district whose selection changed and the other five
+  bail out on their unchanged props, all of which are stable by construction:
+  the district record, the focus flag, the page's callbacks.
+*/
+export const LANDMARKS: Record<DistrictId, React.ComponentType<LandmarkProps>> = {
+  ideology: memo(IdeologyIsles),
+  history: memo(HistoricalHabitat),
+  geography: memo(GeographicalGarden),
+  science: memo(ScientificShores),
+  art: memo(ArtisticArboretum),
+  anthropology: memo(AnthropologicAlps),
 }

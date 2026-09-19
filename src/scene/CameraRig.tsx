@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { EASE, gsap, prefersReducedMotion, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtView, type DistrictId } from './districts'
 import type { SubFocus } from './exhibits'
+import { useView } from '../state/selection'
 import { fovForAspect, frameScale } from './framing'
 
 /** The subset of OrbitControls this rig touches. */
@@ -135,11 +136,6 @@ function viewFor(id: DistrictId, scale: number, sub?: SubFocus | null) {
 type RigProps = {
   focus: DistrictId | null
   /**
-   * A place within the focused district to fly down to, or null for the
-   * district's own framing. Set when a country on the world map is chosen.
-   */
-  subFocus?: SubFocus | null
-  /**
    * Raised while a flight is airborne. The idle auto-orbit has to be off during
    * one: three's OrbitControls.update() applies autoRotate without checking
    * `enabled`, and this rig calls update() on every tween tick, so a live
@@ -148,8 +144,12 @@ type RigProps = {
   onFlyingChange?: (flying: boolean) => void
 }
 
-export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
+export function CameraRig({ focus, onFlyingChange }: RigProps) {
   const camera = useThree((s) => s.camera)
+  // A place within the focused district to fly down to, or null for the
+  // district's own framing. Published by the district when something in it
+  // is chosen; read here so the flight is built in the same commit.
+  const sub = useView()
   const controls = useThree((s) => s.controls) as Controls | null
   const size = useThree((s) => s.size)
   const firstRun = useRef(true)
@@ -260,7 +260,7 @@ export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
     if (!controls) return
 
     const scale = frameScale(aspect)
-    const view = focus ? viewFor(focus, scale, subFocus) : homeView(scale)
+    const view = focus ? viewFor(focus, scale, sub) : homeView(scale)
     const intro = firstRun.current
     firstRun.current = false
 
@@ -437,7 +437,7 @@ export function CameraRig({ focus, subFocus, onFlyingChange }: RigProps) {
     // effect above. Including it would re-fly the camera on every resize and on
     // every phone rotation. If a hooks linter ever lands, this is a considered
     // exception, not an oversight.
-  }, [focus, subFocus, controls, camera, onFlyingChange])
+  }, [focus, sub, controls, camera, onFlyingChange])
 
   return null
 }

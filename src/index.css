@@ -11,6 +11,9 @@
   --edge: rgba(180, 208, 240, 0.18);
   /* No --accent is in scope on .reset, so focus rings need a literal. */
   --focus: #8fd6ff;
+  /* The bar along the top; the strip along the bottom sets --nav-h itself. */
+  --top-h: 58px;
+  --nav-h: 0px;
 
   color-scheme: dark;
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -80,27 +83,25 @@ canvas {
 /* Side panel                                                            */
 /* --------------------------------------------------------------------- */
 
-.panel {
+.topbar {
   position: fixed;
   top: 0;
+  right: 0;
   left: 0;
   z-index: 10;
   display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: min(370px, 88vw);
-  max-height: 100dvh;
-  padding: 26px 22px;
-  overflow-y: auto;
+  gap: 16px;
+  align-items: center;
+  height: var(--top-h);
+  padding: 0 16px;
   /*
-    Never reaches transparent. The old ramp hit 0 at 70%, so any entry past that
-    point was legible only by luck of whatever the camera happened to be showing
-    behind it.
+    Never reaches transparent: everything in the bar has to be legible against
+    whatever the camera happens to be showing behind it, sky or sea.
   */
-  background: linear-gradient(180deg, rgba(8, 14, 24, 0.93), rgba(8, 14, 24, 0.86) 72%, rgba(8, 14, 24, 0.68));
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(8, 14, 24, 0.86));
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  pointer-events: none;
+  border-bottom: 1px solid var(--edge);
 }
 
 /*
@@ -109,34 +110,32 @@ canvas {
   covered before, which is exactly backwards — that is the one Safari honours.
 */
 @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
-  .panel {
-    background: linear-gradient(180deg, rgba(8, 14, 24, 0.97), rgba(8, 14, 24, 0.93));
+  .topbar {
+    background: linear-gradient(180deg, rgba(8, 14, 24, 0.97), rgba(8, 14, 24, 0.94));
   }
 }
 
-.panel > * {
-  pointer-events: auto;
-}
-
 /*
-  The panel arrives a beat after the scene does.
+  The bar arrives a beat after the scene does.
 
   index.html paints a gradient and a loading bar, React replaces it, and the
-  island then rises out of the sea over about two seconds. With the panel
+  island then rises out of the sea over about two seconds. With the bar
   appearing on the same frame as the canvas, the first thing the eye goes to is
-  a wall of text over an empty sea — the reveal it was built to introduce
+  a row of controls over an empty sea — the reveal it was built to introduce
   happens in the visitor's peripheral vision.
 
   0.5s of delay puts the fade after the first islands have broken the surface,
-  and 0.7s of ease means the panel is fully legible by the time the reveal
-  finishes. The forwards/backwards fill matters: backwards holds the opening
-  frame during the delay, without which the panel would flash at full opacity
-  before the animation started.
+  and 0.7s of ease means the bar is fully legible by the time the reveal
+  finishes. The backwards fill holds the opening frame during the delay,
+  without which the bar would flash at full opacity before the animation
+  started — and it must not be `both`: an applying animation beats ordinary
+  declarations in the cascade, so a `forwards` fill would silently override
+  the `.is-away` transform below and the bar would never move.
 */
 @keyframes panel-in {
   from {
     opacity: 0;
-    transform: translateX(-14px);
+    transform: translateY(-12px);
   }
   to {
     opacity: 1;
@@ -144,20 +143,7 @@ canvas {
   }
 }
 
-.panel {
-  /*
-    `backwards`, emphatically not `both`.
-
-    A fill of `both` (or `forwards`) leaves the animation's final keyframe
-    applying for the rest of the document's life, and an applying animation beats
-    ordinary declarations in the cascade — so `.is-away` below set opacity 0 and
-    a translate that were silently overridden by the finished intro, and the
-    panel simply never moved. `backwards` holds the OPENING frame during the
-    0.5s delay, which is the only fill this actually needs: without it the panel
-    flashes at full opacity for those 500ms before the animation starts. Once
-    the animation ends it stops contributing, and the transition below takes
-    over the transform.
-  */
+.topbar {
   animation: panel-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.5s backwards;
   transition:
     transform 520ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -165,17 +151,17 @@ canvas {
 }
 
 /*
-  Slid out of the window while the world map is being read. Translated rather
-  than display:none so it animates, and far enough that the shadow clears the
-  edge too.
+  Slid up out of the window while the world map is being read. Translated
+  rather than display:none so it animates, and far enough that the shadow
+  clears the edge too.
 */
-.panel.is-away {
+.topbar.is-away {
   opacity: 0;
-  transform: translateX(-105%);
+  transform: translateY(-105%);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel {
+  .topbar {
     animation: none;
     transition: opacity 200ms ease;
   }
@@ -184,7 +170,7 @@ canvas {
     Still gets out of the way — the reason it moves is that it is covering the
     subject, which is not a motion preference. It simply stops sliding.
   */
-  .panel.is-away {
+  .topbar.is-away {
     transform: none;
     visibility: hidden;
   }
@@ -207,116 +193,109 @@ canvas {
 }
 
 /*
-  There was no focus style anywhere in this file. :focus-visible rather than
-  :focus so a pointer user does not get a ring on every click.
+  :focus-visible rather than :focus so a pointer user does not get a ring on
+  every click.
 
   .marker is deliberately absent: those are aria-hidden and tabIndex={-1} by
   design (see DistrictLayer), so they can never take focus, and a rule for them
-  would be dead CSS implying a keyboard path that does not exist. The panel is
-  the keyboard route to every action a marker offers.
+  would be dead CSS implying a keyboard path that does not exist. The bar and
+  the strip are the keyboard route to every action a marker or a stone offers.
 */
 .entry:focus-visible,
-.reset:focus-visible {
+.reset:focus-visible,
+.exnav__group:focus-visible,
+.exnav__item:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
-.panel__head h1 {
+.topbar__brand {
+  flex: none;
+  min-width: 0;
+}
+
+.topbar__brand h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 17px;
   font-weight: 600;
+  line-height: 1.2;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.panel__head p {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
+.topbar__brand p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.3;
   color: var(--ink-dim);
 }
 
-.panel__list {
+/* The six, in a row that scrolls when the window is narrower than they are. */
+.topbar__list {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex: 1;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar__list::-webkit-scrollbar {
+  display: none;
 }
 
 .entry {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 13px;
   font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   color: var(--ink);
-  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   background: var(--glass);
   border: 1px solid var(--edge);
-  border-left: 3px solid var(--accent);
-  border-radius: 10px;
+  border-radius: 999px;
   transition: background 160ms ease, transform 160ms ease;
+}
+
+/* The district's colour, as a dot: the border-left the tall entries carried. */
+.entry::before {
+  width: 8px;
+  height: 8px;
+  content: '';
+  background: var(--accent);
+  border-radius: 50%;
 }
 
 .entry:hover {
   background: rgba(24, 38, 58, 0.78);
-  transform: translateX(3px);
+  transform: translateY(-1px);
 }
 
 .entry.is-active {
+  color: var(--accent);
   background: rgba(30, 48, 72, 0.9);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
-.entry__name {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
-.entry__blurb {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--ink-dim);
-}
-
-/*
-  Mobile only — hidden on desktop, where the panel is always open. Declared out
-  here rather than inside the media query so the base state is unconditional.
-*/
-.panel__toggle {
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 14px;
-  font: inherit;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink);
-  cursor: pointer;
-  background: var(--glass);
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-}
-
-.panel__toggle:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
 .reset {
-  padding: 10px;
+  flex: none;
+  padding: 8px 12px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink);
   cursor: pointer;
   background: var(--glass);
   border: 1px solid var(--edge);
-  border-radius: 10px;
+  border-radius: 999px;
 }
 
 .reset:disabled {
@@ -328,15 +307,19 @@ canvas {
 /* District dossier                                                      */
 /* --------------------------------------------------------------------- */
 
+.chrome {
+  display: contents;
+}
+
 .dossier {
   position: fixed;
   right: 22px;
-  bottom: 26px;
+  bottom: calc(var(--nav-h) + 22px);
   /* Below .panel (10) so an expanded mobile sheet covers it, above the
      in-scene labels (8) so a marker never lands on top of prose. */
   z-index: 9;
   width: min(340px, 40vw);
-  max-height: 72dvh;
+  max-height: calc(100dvh - var(--top-h) - var(--nav-h) - 60px);
   padding: 20px 22px;
   overflow-y: auto;
   background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(8, 14, 24, 0.88));
@@ -440,10 +423,10 @@ canvas {
 .wiki-card {
   position: fixed;
   right: 22px;
-  bottom: 26px;
+  bottom: calc(var(--nav-h) + 22px);
   z-index: 9;
   width: min(340px, 40vw);
-  max-height: 60dvh;
+  max-height: calc(100dvh - var(--top-h) - var(--nav-h) - 60px);
   padding: 20px 22px;
   overflow-y: auto;
   background: linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(8, 14, 24, 0.88));
@@ -514,7 +497,7 @@ canvas {
 */
 .debug {
   position: fixed;
-  top: 12px;
+  top: calc(var(--top-h) + 12px);
   right: 12px;
   z-index: 20;
   display: grid;
@@ -556,8 +539,8 @@ canvas {
 */
 .escape {
   position: fixed;
-  top: 22px;
-  left: 22px;
+  top: 16px;
+  left: 16px;
   z-index: 11;
   display: flex;
   gap: 8px;
@@ -630,7 +613,8 @@ canvas {
 */
 @media (prefers-reduced-motion: reduce) {
   .entry,
-  .marker {
+  .marker,
+  .exnav__item {
     transition: none;
   }
 
@@ -639,48 +623,171 @@ canvas {
   }
 }
 
+/* --------------------------------------------------------------------- */
+/* The exhibit strip                                                     */
+/* --------------------------------------------------------------------- */
+
+/*
+  Along the bottom: every exhibit of the focused district as a row of
+  buttons, with its groups as a quieter row above. Fixed height, set by the
+  page (--nav-h), so the card and the dossier know where its top is.
+*/
+.exnav {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(0deg, rgba(8, 14, 24, 0.96), rgba(8, 14, 24, 0.86));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--edge);
+  animation: nav-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.3s backwards;
+}
+
+@keyframes nav-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.exnav__groups,
+.exnav__items {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.exnav__groups::-webkit-scrollbar,
+.exnav__items::-webkit-scrollbar {
+  display: none;
+}
+
+.exnav__groups {
+  flex: none;
+}
+
+.exnav__items {
+  flex: 1;
+  /* Room for the chosen item to be centred without hugging an edge. */
+  scroll-padding: 0 40px;
+}
+
+.exnav__group {
+  display: flex;
+  flex: none;
+  gap: 7px;
+  align-items: center;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.exnav__group::before {
+  width: 8px;
+  height: 8px;
+  content: '';
+  background: var(--group);
+  border-radius: 50%;
+}
+
+.exnav__group.is-viewed {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--edge);
+}
+
+.exnav__group.is-selected {
+  box-shadow: 0 0 0 1px var(--group) inset;
+}
+
+.exnav__item {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  transition: background 160ms ease;
+}
+
+.exnav__item:hover {
+  background: rgba(24, 38, 58, 0.78);
+}
+
+.exnav__item.is-active {
+  background: rgba(30, 48, 72, 0.95);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.exnav__name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.exnav__note {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
 @media (max-width: 720px) {
   /*
-    Bottom sheet.
-
-    The panel used to sit at the top of the viewport covering 46dvh of the only
-    interaction surface at 86% opacity, with `.panel > * { pointer-events: auto }`
-    across the full width — so a drag begun anywhere in that band rotated
-    nothing at all. Anchored to the bottom and collapsed to a toggle, the canvas
-    gets essentially the whole screen and the control sits where a thumb is.
-
-    The <h1> stays visible in the collapsed state on purpose: `display: none`
-    takes it out of the accessibility tree, and a page whose only heading is
-    behind a disclosure is worse than a slightly taller sheet.
+    The bar keeps its shape on a phone — a row of chips scrolls — but loses
+    the tagline and the overview button, which Escape and the active chip
+    cover, so the six territories get the width.
   */
-  .panel {
-    top: auto;
-    bottom: 0;
-    gap: 12px;
-    width: 100vw;
-    max-height: 82dvh;
-    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-    background: linear-gradient(
-      0deg,
-      rgba(8, 14, 24, 0.97),
-      rgba(8, 14, 24, 0.94) 70%,
-      rgba(8, 14, 24, 0.86)
-    );
-    border-top: 1px solid var(--edge);
-    border-radius: 16px 16px 0 0;
+  :root {
+    --top-h: 52px;
   }
 
-  /*
-    Opaque here, so nothing needs to be seen or dragged through it. The
-    none/auto split the desktop panel uses would leave the sheet's padding and
-    inter-child gaps passing touches to OrbitControls underneath.
-  */
-  .panel {
-    pointer-events: auto;
+  .topbar {
+    gap: 10px;
+    padding: 0 12px;
   }
 
-  .panel__toggle {
-    display: flex;
+  .topbar__brand h1 {
+    font-size: 13px;
+  }
+
+  .topbar__brand p,
+  .reset {
+    display: none;
+  }
+
+  .entry {
+    padding: 7px 11px;
+    font-size: 12px;
   }
 
   /*
@@ -693,32 +800,23 @@ canvas {
     padding: 5px 10px;
   }
 
-  .panel__head h1 {
-    font-size: 19px;
-  }
-
-  .panel:not(.is-open) .panel__head p,
-  .panel:not(.is-open) .panel__list,
-  .panel:not(.is-open) .reset {
-    display: none;
-  }
-
-  /*
-    Clear of the collapsed sheet (toggle + heading is roughly 110px). When the
-    sheet is expanded it covers this instead, which is the right precedence —
-    the visitor asked for the list.
-  */
-  .dossier {
+  .dossier,
+  .wiki-card {
     right: 12px;
     left: 12px;
-    bottom: 122px;
+    bottom: calc(var(--nav-h) + 12px);
     width: auto;
-    max-height: 40dvh;
+    max-height: 34dvh;
   }
 
-  /* The panel is at the bottom here, so the fallback copy goes to the top. */
+  .exnav {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  /* Clear of the bar. */
   .scene-down {
     justify-content: flex-start;
-    padding: 28px 20px 96px;
+    padding: calc(var(--top-h) + 28px) 20px 40px;
   }
 }

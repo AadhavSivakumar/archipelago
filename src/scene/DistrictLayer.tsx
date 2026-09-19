@@ -5,7 +5,6 @@ import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import { DISTRICTS, districtPosition, type DistrictId } from './districts'
 import { LANDMARKS } from './landmarks'
-import type { SubFocus } from './exhibits'
 import { setCursor } from './cursor'
 
 type Props = {
@@ -20,8 +19,6 @@ type Props = {
    * the Geographical Garden's map, where the others are all off-frame.
    */
   soloDistrict: DistrictId | null
-  /** Raised by a district that has somewhere within it worth flying to. */
-  onSubFocus: (view: SubFocus | null) => void
 }
 
 /**
@@ -59,7 +56,6 @@ export function Districts({
   occluders,
   deepLinked,
   soloDistrict,
-  onSubFocus,
 }: Props) {
   const root = useRef<THREE.Group>(null!)
   const animated = useRef<THREE.Group[]>([])
@@ -179,7 +175,7 @@ export function Districts({
               }}
               onPointerOut={() => setCursor('')}
             >
-              <Landmark d={d} focused={focus === d.id} onSubFocus={onSubFocus} />
+              <Landmark d={d} focused={focus === d.id} />
 
             {/*
               `occlude` as a ref array raycasts against the landmass only —

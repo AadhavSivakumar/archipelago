@@ -1,14 +1,30 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { WikiCard } from './components/WikiCard'
-import type { Subject } from './components/wikipedia'
 import { DebugOverlay } from './components/DebugOverlay'
 import { DistrictDossier } from './components/DistrictDossier'
+import { ExhibitNav } from './components/ExhibitNav'
+import { navHeight } from './content/navigation'
+import { getSelection, select, useSubject } from './state/selection'
 import { telemetry } from './scene/telemetry'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useHashFocus } from './hooks/useHashFocus'
 import { Scene } from './scene/Scene'
-import { DISTRICTS } from './scene/districts'
+import { DISTRICTS, type DistrictId } from './scene/districts'
+
+/**
+ * The corner: what is chosen, or failing that, where you are.
+ *
+ * The dossier gives way to the card rather than stacking with it. Both are
+ * the same fixed corner, and both answer "what am I looking at" — showing the
+ * Garden's own blurb above a paragraph about Chile would be answering a
+ * question nobody asked twice over. Its own component so that a choice
+ * re-renders this corner and not the page around it.
+ */
+function Corner({ focus }: { focus: DistrictId | null }) {
+  const subject = useSubject()
+  return subject ? <WikiCard {...subject} /> : <DistrictDossier focus={focus} />
+}
 
 export function App() {
   // App state, not transform state — this changes on click, not per frame, so a
@@ -17,9 +33,6 @@ export function App() {
   // linked to, reloaded into, and backed out of.
   const [focus, setFocus] = useHashFocus()
 
-  // Only meaningful below 720px, where the panel becomes a bottom sheet. On
-  // desktop the toggle is display:none and the panel is always open.
-  const [panelOpen, setPanelOpen] = useState(false)
 
   /*
     Set while the camera is down among the Geographical Garden's world map.
@@ -53,17 +66,32 @@ export function App() {
   */
   const [leavingMap, setLeavingMap] = useState(false)
 
-  /** Whatever is chosen inside the focused district, if anything. */
-  const [subject, setSubject] = useState<Subject | null>(null)
+  /*
+    Focus and selection change together. Setting them in the same tick means
+    no render ever sees the new district with the old district's selection,
+    and the district check on Selection covers the one path that bypasses
+    this — the browser's Back button — by making a stale one inapplicable.
+  */
+  const focusDistrict = useCallback(
+    (id: DistrictId | null) => {
+      select(null)
+      setFocus(id)
+    },
+    [setFocus],
+  )
+  useEffect(() => {
+    const s = getSelection()
+    if (s && s.district !== focus) select(null)
+  }, [focus])
 
   const leaveDistrict = useCallback(() => {
     if (!immersive) {
-      setFocus(null)
+      focusDistrict(null)
       return
     }
     setLeavingMap(true)
-    requestAnimationFrame(() => requestAnimationFrame(() => setFocus(null)))
-  }, [immersive, setFocus])
+    requestAnimationFrame(() => requestAnimationFrame(() => focusDistrict(null)))
+  }, [immersive, focusDistrict])
 
   /*
     The flag is cleared by the scene, not by the timer that set it.
@@ -96,69 +124,52 @@ export function App() {
   return (
     <>
       {/*
-        The panel comes first in the DOM on purpose. drei portals each district
+        The bar comes first in the DOM on purpose. drei portals each district
         label into the canvas wrapper, so with the canvas first those six pills
         took the first six tab stops — ahead of the <h1> — and a focused one
         could sit off-frustum with `overflow: hidden` preventing any
-        scroll-into-view. The panel is position:fixed and the wrapper is the only
+        scroll-into-view. The bar is position:fixed and the wrapper is the only
         in-flow child of #root, so this reorder costs nothing visually.
       */}
       <header
-        className={`panel${panelOpen ? ' is-open' : ''}${immersive && !leavingMap ? ' is-away' : ''}`}
+        className={`topbar${immersive && !leavingMap ? ' is-away' : ''}`}
         // Hidden from assistive tech as well as from view while it is off-screen
         // — a translated element is still in the accessibility tree, and a
         // screen reader would otherwise offer six controls the visitor cannot
         // see and a tab stop that scrolls the page sideways to reach.
         inert={(immersive && !leavingMap) || undefined}
       >
-        <button
-          type="button"
-          className="panel__toggle"
-          aria-expanded={panelOpen}
-          aria-controls="territory-list"
-          onClick={() => setPanelOpen((open) => !open)}
-        >
-          <span>{panelOpen ? 'Hide territories' : 'Show territories'}</span>
-          <span aria-hidden="true">{panelOpen ? '▾' : '▴'}</span>
-        </button>
-
-        <header className="panel__head">
+        <div className="topbar__brand">
           <h1>Archipelago</h1>
-          <p>An archipelago of six territories of knowledge.</p>
-        </header>
+          <p>Six territories of knowledge.</p>
+        </div>
 
-        <nav id="territory-list" className="panel__list" aria-label="Territories">
+        <nav className="topbar__list" aria-label="Territories">
           {DISTRICTS.map((d) => (
             <button
               key={d.id}
               type="button"
               className={`entry${focus === d.id ? ' is-active' : ''}`}
               style={{ '--accent': d.accent } as React.CSSProperties}
+              // The blurb no longer fits beside the name; it is the tooltip
+              // here and the dossier's opening line once the district is
+              // focused, which is where there is room to read it.
+              title={d.blurb}
               // State was carried by a class alone, which is invisible to
               // assistive tech. These are toggles, so aria-pressed is the fit.
               aria-pressed={focus === d.id}
               // These genuinely navigate now — the URL changes and Back works —
               // so the entry is also the current item within its set.
               aria-current={focus === d.id ? 'true' : undefined}
-              onClick={() => {
-                setFocus(focus === d.id ? null : d.id)
-                // Below 720px the sheet covers the island it just flew to.
-                setPanelOpen(false)
-              }}
+              onClick={() => focusDistrict(focus === d.id ? null : d.id)}
             >
-              <span className="entry__name">{d.name}</span>
-              <span className="entry__blurb">{d.blurb}</span>
+              {d.name}
             </button>
           ))}
         </nav>
 
-        <button
-          type="button"
-          className="reset"
-          onClick={leaveDistrict}
-          disabled={focus === null}
-        >
-          Back to the whole archipelago
+        <button type="button" className="reset" onClick={leaveDistrict} disabled={focus === null}>
+          Overview
         </button>
       </header>
 
@@ -204,7 +215,15 @@ export function App() {
         showing the Garden's own blurb above a paragraph about Chile would be
         answering a question nobody asked twice over.
       */}
-      {subject ? <WikiCard {...subject} /> : <DistrictDossier focus={focus} />}
+      {/*
+        Everything that sits over the scene, sharing one measurement: how tall
+        the exhibit strip is, so the card and the dossier can stand clear of
+        it. display:contents, so the wrapper adds no box of its own.
+      */}
+      <div className="chrome" style={{ '--nav-h': `${navHeight(focus)}px` } as React.CSSProperties}>
+        <Corner focus={focus} />
+        <ExhibitNav focus={focus} />
+      </div>
 
       {/*
         The boundary wraps the canvas alone — see ErrorBoundary's own note. The
@@ -302,7 +321,6 @@ export function App() {
               onFocus={setFocus}
               onImmersive={setImmersive}
               forceWorld={leavingMap}
-              onSubject={setSubject}
             />
             </Suspense>
           </Canvas>

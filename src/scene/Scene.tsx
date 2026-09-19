@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   Environment,
@@ -17,8 +17,7 @@ import { frameScale } from './framing'
 import { Districts } from './DistrictLayer'
 import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
-import type { SubFocus } from './exhibits'
-import type { Subject } from '../components/wikipedia'
+import { useView } from '../state/selection'
 import { QUALITY_FOR_TIER, uQuality, type QualityTier } from './quality'
 import { telemetry } from './telemetry'
 
@@ -54,8 +53,6 @@ type Props = {
    * in App.
    */
   forceWorld: boolean
-  /** Whatever was chosen inside a district, for the page to describe. */
-  onSubject: (subject: Subject | null) => void
 }
 
 /**
@@ -581,7 +578,7 @@ function MapDetail({ active, onChange }: { active: boolean; onChange: (low: bool
   return null
 }
 
-export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Props) {
+export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
   /*
     True while the camera is down among the Geographical Garden's map. Drives
     every level-of-detail decision in this file: the coarse island, the dropped
@@ -603,31 +600,11 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Pr
   const [stripped, setStripped] = useState(false)
 
   /*
-    Where inside the focused district the camera should be looking, if anywhere
-    more specific than the district itself. Only the world map raises it, when a
-    country is chosen.
-
-    Held here rather than inside the Garden because the camera is not the
-    Garden's to move: CameraRig is the single writer of camera.position, and the
-    whole point of that rule is that no component gets to make an exception for
-    itself.
+    Whatever within the focused district is being looked at: a country, a
+    stone, a god. Published by the district that holds it and read here only
+    for the orbit floor — the camera is CameraRig's alone to move.
   */
-  const [subFocus, setSubFocus] = useState<SubFocus | null>(null)
-  /*
-    Stable on purpose. Every district's landmark takes this, and the Garden
-    re-runs its leave-district effect whenever it changes — an inline arrow
-    here meant that effect fired on every Scene render, and the first time
-    another district raised a sub-focus, the Garden (unfocused, as it should
-    be) answered by clearing it. The card vanished and the flight was killed
-    on the same frame they began.
-  */
-  const handleSubFocus = useCallback(
-    (view: SubFocus | null) => {
-      setSubFocus(view)
-      onSubject(view ? { name: view.name, article: view.article, kicker: view.kicker } : null)
-    },
-    [onSubject],
-  )
+  const view = useView()
   // Held here so the labels can occlude against the landmass they sit on. This
   // is the coarse proxy, not the display mesh — see islandOccluderGeometry.
   const occluder = useRef<THREE.Mesh>(null!)
@@ -725,7 +702,6 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Pr
             districts' worth of small draw calls are issued to render nothing.
           */
           soloDistrict={stripped ? focus : null}
-          onSubFocus={handleSubFocus}
         />
         {/*
           Compiles every material in the scene — including those on objects
@@ -802,7 +778,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Pr
       <FixedDpr />
       <Telemetry />
       <IdleOrbit active={idle && focus === null && !flying} />
-      <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />
+      <CameraRig focus={focus} onFlyingChange={setFlying} />
       <OrbitControls
         makeDefault
         enablePan={false}
@@ -849,7 +825,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onSubject }: Pr
           low limit until the flight lands means the tween owns the whole path
           in both directions.
         */
-        minDistance={focus === 'geography' || flying ? 1.2 : subFocus ? 4 : 18}
+        minDistance={focus === 'geography' || flying ? 1.2 : view ? 4 : 18}
         /*
           The wheel is dead on the world map.
 

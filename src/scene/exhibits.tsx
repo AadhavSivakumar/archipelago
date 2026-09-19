@@ -3,6 +3,7 @@ import { Html } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import { setCursor } from './cursor'
+import { publishView } from '../state/selection'
 import type { District } from './districts'
 
 /**
@@ -128,7 +129,8 @@ type ExhibitsProps = {
   marker?: { geometry: THREE.BufferGeometry; material: THREE.Material; lift?: number }
   picked: number
   onPick: (index: number) => void
-  onSubFocus?: (view: SubFocus | null) => void
+  /** Where to send the chosen item's view, instead of straight to the store. */
+  onSubFocus?: (view: SubFocus) => void
   /**
    * Maps an item to the district-local point the camera should frame, for
    * items whose parent group moves — the Ideology Isles orbit their rotunda,
@@ -239,27 +241,24 @@ export function Exhibits({
   }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /*
-    The selection, as somewhere to fly and something to describe. Emitted from
-    the state rather than from the click so that every route to a selection
-    produces exactly one announcement. "Nothing" is only announced after
-    something was — six districts mount with nothing chosen, and none of them
-    needs to say so.
+    The selection, as somewhere to fly and something to describe, published to
+    the shared store from the state rather than from the click, so that every
+    route to a selection — a click here, a name in the strip, an arrow key —
+    produces the same view. A layout effect, so the camera and the card learn
+    of it in the same commit as the highlight; a passive effect would leave a
+    visible gap between the stone lighting up and the flight starting.
+
+    Also on the count: a selection can arrive before its items do — a god
+    chosen from the strip raises its pantheon's tree on the same tick — and
+    has to be published once they exist. Clearing is not this component's
+    job: the store clears the view when the selection is cleared.
   */
-  const announced = useRef(false)
-  useEffect(() => {
-    if (!onSubFocus) return
-    if (picked < 0 || picked >= n) {
-      if (announced.current) {
-        announced.current = false
-        onSubFocus(null)
-      }
-      return
-    }
-    announced.current = true
+  useLayoutEffect(() => {
+    if (picked < 0 || picked >= n) return
     const it = items[picked]
     const [x, y, z] = place ? place(it, picked) : [it.x, it.y, it.z]
     const span = it.extent ?? extent
-    onSubFocus({
+    ;(onSubFocus ?? publishView)({
       x,
       y,
       z,
@@ -270,7 +269,7 @@ export function Exhibits({
       kicker: it.kicker,
       elevation: it.elevation ?? elevation,
     })
-  }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picked, n]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Leaving the district clears the selection; coming back starts clean.
   useEffect(() => {

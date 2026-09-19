@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Html } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -48,8 +48,10 @@ export type Exhibit = {
 }
 
 const UP = new THREE.Vector3(0, 1, 0)
+const RIGHT = new THREE.Vector3(1, 0, 0)
 const M = new THREE.Matrix4()
 const Q = new THREE.Quaternion()
+const Q2 = new THREE.Quaternion()
 const P = new THREE.Vector3()
 const S = new THREE.Vector3()
 const C = new THREE.Color()
@@ -186,6 +188,9 @@ export function Exhibits({
   const mesh = useRef<THREE.InstancedMesh>(null!)
   const partMeshes = useRef<(THREE.InstancedMesh | null)[]>([])
   const hover = useRef(-1)
+  // The same fact as the ref, for the pill: a render on entering or leaving
+  // an item, not on every move across it.
+  const [hovered, setHovered] = useState(-1)
   const n = items.length
   const slots = capacity ?? Math.max(n, 1)
 
@@ -295,6 +300,7 @@ export function Exhibits({
       hover.current = id
       paint(prev)
       paint(id)
+      setHovered(id)
     }
     setCursor('pointer')
   }
@@ -302,6 +308,7 @@ export function Exhibits({
     const prev = hover.current
     hover.current = -1
     paint(prev)
+    setHovered(-1)
     setCursor('')
   }
   const onClick = (e: ThreeEvent<MouseEvent>) => {
@@ -315,6 +322,9 @@ export function Exhibits({
   }
 
   const chosen = focused && picked >= 0 && picked < n ? items[picked] : null
+  // Named on hover, so a gallery can be browsed without a label over every
+  // work — the name follows the pointer, and stays once clicked.
+  const under = focused && hovered >= 0 && hovered < n && hovered !== picked ? items[hovered] : null
 
   return (
     <group>
@@ -360,6 +370,13 @@ export function Exhibits({
           </div>
         </Html>
       )}
+      {under && (
+        <Html position={[under.x, under.y + lift + labelHeight, under.z]} center zIndexRange={[7, 0]}>
+          <div className="exhibit exhibit--hover" aria-hidden="true">
+            {under.name}
+          </div>
+        </Html>
+      )}
 
       {/* The same fact, spoken: the pill above is aria-hidden because it is
           portalled out of the document order that describes this scene. */}
@@ -380,9 +397,10 @@ export type LabelAtlas = {
   texture: THREE.CanvasTexture
   /** Per label: u, v, width, height in texture space. */
   cells: [number, number, number, number][]
+  /** Height over width of one cell, so the quad matches it. */
+  aspect: number
 }
 
-const CELL_W = 256
 const CELL_H = 64
 const COLS = 4
 const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
@@ -402,7 +420,8 @@ const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
  * alike; the fill is white and the stroke a near-black, and the text shrinks
  * to fit its cell rather than clipping.
  */
-export function makeLabelAtlas(texts: readonly string[]): LabelAtlas {
+export function makeLabelAtlas(texts: readonly string[], { cellWidth = 256 } = {}): LabelAtlas {
+  const CELL_W = cellWidth
   const rows = Math.max(1, Math.ceil(texts.length / COLS))
   const canvas = document.createElement('canvas')
   canvas.width = CELL_W * COLS
@@ -447,10 +466,19 @@ export function makeLabelAtlas(texts: readonly string[]): LabelAtlas {
   texture.generateMipmaps = false
   texture.anisotropy = 4
   texture.needsUpdate = true
-  return { texture, cells }
+  return { texture, cells, aspect: CELL_H / CELL_W }
 }
 
-const LABEL_PLANE = new THREE.PlaneGeometry(1, CELL_H / CELL_W)
+/** One unit-wide quad per cell aspect in use. */
+const LABEL_PLANES = new Map<number, THREE.PlaneGeometry>()
+function labelPlane(aspect: number) {
+  let plane = LABEL_PLANES.get(aspect)
+  if (!plane) {
+    plane = new THREE.PlaneGeometry(1, aspect)
+    LABEL_PLANES.set(aspect, plane)
+  }
+  return plane
+}
 
 export type LabelPlacement = {
   /** Index into the atlas. */
@@ -460,6 +488,9 @@ export type LabelPlacement = {
   z: number
   /** World width; the height follows the cell's aspect. */
   width: number
+  /** For a flat label: rotation about Y, then a lean about its own X. */
+  yaw?: number
+  pitch?: number
 }
 
 /*
@@ -469,7 +500,7 @@ export type LabelPlacement = {
   laid out in VIEW space rather than model space, so every label faces the
   camera whatever it is doing. This is what lets the same labels serve the
   district view, the close-up of a chosen exhibit, and every orbit in between,
-  and it is why the placement carries no rotation: the text is never seen
+  and it is why a floating label carries no rotation: the text is never seen
   mirrored, which a fixed-yaw plane would be from the far side.
 
   The scale is read back from the matrix columns rather than passed in, and
@@ -483,6 +514,17 @@ vec2 lblScale = vec2(
   length(modelViewMatrix[1].xyz) * length(instanceMatrix[1].xyz)
 );
 mvPosition.xy += transformed.xy * lblScale;
+vLblDepth = -mvPosition.z;
+gl_Position = projectionMatrix * mvPosition;
+`
+
+/*
+  A flat label is ordinary geometry: it lies where its matrix puts it, so it
+  can be written ON a surface — the name on a station's panel — and turn with
+  it. Only seen from the front, by construction of whatever it is written on.
+*/
+const FLAT_GLSL = /* glsl */ `
+vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(transformed, 1.0);
 vLblDepth = -mvPosition.z;
 gl_Position = projectionMatrix * mvPosition;
 `
@@ -504,10 +546,13 @@ export function InstancedLabels({
   opacity = 1,
   fade,
   capacity,
+  billboard = true,
 }: {
   atlas: LabelAtlas
   placements: readonly LabelPlacement[]
   opacity?: number
+  /** Face the camera (the default), or lie flat where placed. */
+  billboard?: boolean
   /**
    * Camera distances between which the labels fade out. Sixty year-marks
    * are notation for someone standing among them; from the district view
@@ -521,8 +566,20 @@ export function InstancedLabels({
   const n = placements.length
   const slots = capacity ?? Math.max(n, 1)
 
+  /*
+    The fade lives in a uniform the material holds by reference, so a change
+    of fade is a change of value, not a new material. That matters more than
+    it looks: the material is one of this mesh's constructor args, and a new
+    one on any render would remount the mesh with every instance back at the
+    origin — the matrices below are only written when the placements change.
+  */
+  const uFade = useRef({ value: new THREE.Vector2(1e6, 2e6) })
+  useEffect(() => {
+    uFade.current.value.set(fade?.[0] ?? 1e6, fade?.[1] ?? 2e6)
+  }, [fade?.[0], fade?.[1]]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const geometry = useMemo(() => {
-    const g = LABEL_PLANE.clone()
+    const g = labelPlane(atlas.aspect).clone()
     const cells = new Float32Array(slots * 4)
     placements.forEach((p, i) => cells.set(atlas.cells[p.cell], i * 4))
     g.setAttribute('aCell', new THREE.InstancedBufferAttribute(cells, 4))
@@ -541,24 +598,25 @@ export function InstancedLabels({
       fog: false,
     })
     m.onBeforeCompile = (shader) => {
-      shader.uniforms.uFade = { value: new THREE.Vector2(fade?.[0] ?? 1e6, fade?.[1] ?? 2e6) }
+      shader.uniforms.uFade = uFade.current
       shader.vertexShader = `attribute vec4 aCell;\nvarying float vLblDepth;\n${shader.vertexShader}`
         .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vMapUv = aCell.xy + uv * aCell.zw;')
-        .replace('#include <project_vertex>', BILLBOARD_GLSL)
+        .replace('#include <project_vertex>', billboard ? BILLBOARD_GLSL : FLAT_GLSL)
       shader.fragmentShader = `uniform vec2 uFade;\nvarying float vLblDepth;\n${shader.fragmentShader}`.replace(
         '#include <alphatest_fragment>',
         'diffuseColor.a *= 1.0 - smoothstep(uFade.x, uFade.y, vLblDepth);\n#include <alphatest_fragment>',
       )
     }
-    m.customProgramCacheKey = () => 'atlas-label'
+    m.customProgramCacheKey = () => (billboard ? 'atlas-label' : 'atlas-label-flat')
     return m
-  }, [atlas, opacity, fade])
+  }, [atlas, opacity, billboard])
 
   useLayoutEffect(() => {
     const m = mesh.current
     placements.forEach((p, i) => {
       P.set(p.x, p.y, p.z)
-      Q.identity()
+      Q.setFromAxisAngle(UP, p.yaw ?? 0)
+      if (p.pitch) Q.multiply(Q2.setFromAxisAngle(RIGHT, p.pitch))
       S.set(p.width, p.width, 1)
       M.compose(P, Q, S)
       m.setMatrixAt(i, M)

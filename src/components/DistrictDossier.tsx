@@ -57,6 +57,7 @@ export function DistrictDossier({ focus }: { focus: DistrictId | null }) {
         {district.name}
       </h2>
       <p className="dossier__summary">{content.summary}</p>
+      {content.hint && <p className="dossier__hint">{content.hint}</p>}
 
       <ul className="dossier__topics">
         {content.topics.map((topic) => (

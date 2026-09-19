@@ -28,6 +28,9 @@ import { ExhibitHall, Exhibits, InstancedLabels, makeLabelAtlas, type Exhibit, t
 import { ERAS, EVENTS, eraOf, yearLabel, type Era } from '../content/history'
 import { PANTHEONS, type Pantheon } from '../content/pantheons'
 import { layoutTree } from './familyTree'
+import { MEDIA } from '../content/artworks'
+import { SUBJECTS } from '../content/sciences'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 // ---------------------------------------------------------------------------
 // Shared materials. One instance each, reused by every landmark — a fresh
@@ -302,6 +305,73 @@ function groundAt(d: District, lx: number, lz: number) {
   const [cx, cz] = districtCentre(d)
   return sampleHeight(cx + lx, cz + lz) - d.pad
 }
+
+/**
+ * A paved strip laid over the terrain along a centreline.
+ *
+ * Every vertex is dropped onto the ground, so the strip climbs and dips with
+ * it — the timeline's outer turn rides the plateau's shoulder, the shore walk
+ * follows the beach — and each sample carries its own colour, which is how
+ * the timeline is a legend for its own eras.
+ */
+function groundRibbon(
+  d: District,
+  line: readonly { x: number; z: number; color: THREE.Color }[],
+  width: number,
+) {
+  const count = line.length
+  const positions = new Float32Array(count * 2 * 3)
+  const colors = new Float32Array(count * 2 * 3)
+  const index: number[] = []
+  for (let k = 0; k < count; k++) {
+    const p = line[k]
+    // Sideways: perpendicular to the run between neighbours.
+    const a = line[Math.max(0, k - 1)]
+    const b = line[Math.min(count - 1, k + 1)]
+    const len = Math.hypot(b.x - a.x, b.z - a.z) || 1
+    const nx = -(b.z - a.z) / len
+    const nz = (b.x - a.x) / len
+    for (let side = 0; side < 2; side++) {
+      const w = (side === 0 ? -0.5 : 0.5) * width
+      const x = p.x + nx * w
+      const z = p.z + nz * w
+      const o = (k * 2 + side) * 3
+      positions[o] = x
+      positions[o + 1] = groundAt(d, x, z) + 0.05
+      positions[o + 2] = z
+      colors[o] = p.color.r
+      colors[o + 1] = p.color.g
+      colors[o + 2] = p.color.b
+    }
+    if (k < count - 1) {
+      const v = k * 2
+      index.push(v, v + 2, v + 1, v + 1, v + 2, v + 3)
+    }
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geo.setIndex(index)
+  geo.computeVertexNormals()
+  // Wound for whichever way the line runs: if the normals came out facing the
+  // ground, flip every triangle.
+  if ((geo.attributes.normal as THREE.BufferAttribute).getY(2) < 0) {
+    for (let i = 0; i < index.length; i += 3) {
+      const t = index[i + 1]
+      index[i + 1] = index[i + 2]
+      index[i + 2] = t
+    }
+    geo.setIndex(index)
+    geo.computeVertexNormals()
+  }
+  return geo
+}
+
+/** The material every ribbon shares: its colour comes from its vertices. */
+const RIBBON_MAT = std(
+  { color: '#ffffff', vertexColors: true, roughness: 0.94, side: THREE.DoubleSide },
+  { grain: 9, mottle: 0.14, bump: 0.22, rough: 0.08 },
+)
 
 /**
  * Furthest point along a bearing that is still dry land AND has ground under
@@ -717,11 +787,6 @@ const STELE = (() => {
 })()
 /** White, so the instance colour — the era's — is the stone's colour. */
 const STELE_MAT = std({ color: '#ffffff', roughness: 0.86 }, QUARRIED)
-/** The path takes its colour from its vertices, era by era. */
-const PATH_MAT = std(
-  { color: '#ffffff', vertexColors: true, roughness: 0.94, side: THREE.DoubleSide },
-  { grain: 9, mottle: 0.14, bump: 0.22, rough: 0.08 },
-)
 /** A ring on the ground under the chosen stele. */
 const HALO = new THREE.TorusGeometry(0.72, 0.065, 10, 48)
 
@@ -820,50 +885,17 @@ function layoutTimeline(d: District): Timeline {
     return ERAS[eraOf(EVENTS[i].year)].color
   }
   const M = 420
-  const positions = new Float32Array((M + 1) * 2 * 3)
-  const colors = new Float32Array((M + 1) * 2 * 3)
-  const index: number[] = []
-  const colour = new THREE.Color()
-  for (let k = 0; k <= M; k++) {
+  const line = Array.from({ length: M + 1 }, (_, k) => {
     const dist = (k / M) * length
     const { theta, r } = at(dist)
-    const c = Math.cos(theta)
-    const sn = Math.sin(theta)
     // A shade under the stones' own colour, so the stelae stand out on it.
-    colour.set(eraColourAt(dist)).multiplyScalar(0.62)
-    for (let side = 0; side < 2; side++) {
-      const rr = r + (side === 0 ? -0.5 : 0.5) * TIMELINE_PATH_W
-      const x = c * rr
-      const z = sn * rr
-      const o = (k * 2 + side) * 3
-      positions[o] = x
-      positions[o + 1] = groundAt(d, x, z) + 0.05
-      positions[o + 2] = z
-      colors[o] = colour.r
-      colors[o + 1] = colour.g
-      colors[o + 2] = colour.b
+    return {
+      x: Math.cos(theta) * r,
+      z: Math.sin(theta) * r,
+      color: new THREE.Color(eraColourAt(dist)).multiplyScalar(0.62),
     }
-    if (k < M) {
-      const a = k * 2
-      index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
-    }
-  }
-  const path = new THREE.BufferGeometry()
-  path.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  path.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  path.setIndex(index)
-  path.computeVertexNormals()
-  // Wound for whichever way the spiral turns: if the normals came out facing
-  // the ground, flip every triangle.
-  if ((path.attributes.normal as THREE.BufferAttribute).getY(2) < 0) {
-    for (let i = 0; i < index.length; i += 3) {
-      const t = index[i + 1]
-      index[i + 1] = index[i + 2]
-      index[i + 2] = t
-    }
-    path.setIndex(index)
-    path.computeVertexNormals()
-  }
+  })
+  const path = groundRibbon(d, line, TIMELINE_PATH_W)
 
   /*
     Labels: the year over every stele, and the era's name over the first
@@ -940,7 +972,7 @@ export function HistoricalHabitat({ d, focused, onSubFocus }: LandmarkProps) {
         <mesh geometry={OBELISK_CAP} rotation={[0, Math.PI / 4, 0]} position={[0, 8.65, 0]} material={mat.gold} />
       </group>
 
-      <mesh geometry={timeline.path} material={PATH_MAT} receiveShadow />
+      <mesh geometry={timeline.path} material={RIBBON_MAT} receiveShadow />
 
       <Exhibits
         d={d}
@@ -1449,7 +1481,7 @@ export function GeographicalGarden({ d, focused, onSubFocus }: LandmarkProps) {
 }
 
 // ===========================================================================
-// Scientific Shores — observatory, atom sculpture, lighthouse, jetty
+// Scientific Shores — observatory, atom, lighthouse, and the subjects along the beach
 // ===========================================================================
 
 const OBS_BASE = new THREE.CylinderGeometry(3.6, 4.0, 1.0, 160)
@@ -1593,7 +1625,93 @@ function Lighthouse() {
   )
 }
 
-export function ScientificShores({ d }: LandmarkProps) {
+/**
+ * A station: an interpretive panel on a post, the kind a shore walk has at
+ * every stop. The post and the panel are merged into one geometry so that a
+ * station is one instance, tinted by its subject.
+ */
+const STATION_LEAN = -0.42
+const STATION = (() => {
+  const post = new THREE.BoxGeometry(0.14, 1.0, 0.14).translate(0, 0.5, 0)
+  const panel = new THREE.BoxGeometry(1.0, 0.64, 0.06).rotateX(STATION_LEAN).translate(0, 1.22, 0.12)
+  return mergeGeometries([post, panel])!
+})()
+const STATION_MAT = std({ color: '#ffffff', roughness: 0.62, metalness: 0.08 }, DRESSED)
+const STATION_HALO = new THREE.TorusGeometry(0.62, 0.055, 10, 44)
+/** Where the stations stand: on the beach, between the plateau and the walk. */
+const SHORE_R = 8.2
+/** Half the arc of beach they occupy, either side of the seaward bearing. */
+const SHORE_HALF = 0.9
+
+type ShoreWalk = {
+  stations: Exhibit[]
+  walk: THREE.BufferGeometry
+  atlas: LabelAtlas
+  labels: LabelPlacement[]
+}
+
+/**
+ * The subjects, as stations along the beach.
+ *
+ * Eleven panels on an arc of the shore, evenly spaced, each facing the water
+ * — which is the side the camera comes from — with a boardwalk running along
+ * the sand in front of them. The arc is centred on the seaward bearing
+ * because that is where the beach is: the ground survey puts the low, flat
+ * sand between about forty and a hundred and forty degrees, and either side
+ * of that the island rises.
+ */
+function layoutShoreWalk(d: District): ShoreWalk {
+  const n = SUBJECTS.length
+  const a0 = d.seaward - SHORE_HALF
+  const a1 = d.seaward + SHORE_HALF
+  const stations: Exhibit[] = SUBJECTS.map((subject, i) => {
+    const a = a0 + (i / (n - 1)) * (a1 - a0)
+    const x = Math.cos(a) * SHORE_R
+    const z = Math.sin(a) * SHORE_R
+    return {
+      name: subject.name,
+      article: subject.article,
+      kicker: subject.blurb,
+      x,
+      y: groundAt(d, x, z),
+      z,
+      // Panel toward the water.
+      yaw: Math.atan2(Math.cos(a), Math.sin(a)),
+      color: subject.color,
+    }
+  })
+
+  const M = 80
+  const plank = new THREE.Color('#6b4a2e')
+  const line = Array.from({ length: M + 1 }, (_, k) => {
+    const a = a0 - 0.1 + (k / M) * (a1 - a0 + 0.2)
+    const r = SHORE_R + 1.0
+    return { x: Math.cos(a) * r, z: Math.sin(a) * r, color: plank }
+  })
+  const walk = groundRibbon(d, line, 1.1)
+
+  // The name on the panel itself — a flat label in the panel's own plane,
+  // leaning as it leans, just proud of its face — so a station reads as a
+  // sign rather than as a blank board with a caption floating over it.
+  const atlas = makeLabelAtlas(SUBJECTS.map((subject) => subject.name))
+  const labels: LabelPlacement[] = stations.map((st, i) => {
+    const a = a0 + (i / (n - 1)) * (a1 - a0)
+    // The panel's centre, then a little along its normal.
+    const out = 0.12 + Math.cos(STATION_LEAN) * 0.07
+    return {
+      cell: i,
+      x: st.x + Math.cos(a) * out,
+      y: st.y + 1.22 - Math.sin(STATION_LEAN) * 0.07,
+      z: st.z + Math.sin(a) * out,
+      width: 0.92,
+      yaw: st.yaw,
+      pitch: STATION_LEAN,
+    }
+  })
+  return { stations, walk, atlas, labels }
+}
+
+export function ScientificShores({ d, focused, onSubFocus }: LandmarkProps) {
   /*
     Which way the open water lies. Both the jetty and the lighthouse run along
     it, so it has to be right or the jetty walks inland.
@@ -1642,8 +1760,11 @@ export function ScientificShores({ d }: LandmarkProps) {
 
   const deckMid = jetty[Math.floor(jetty.length / 2)]
 
+  const shore = useMemo(() => layoutShoreWalk(d), [d])
+  const [picked, setPicked] = useState(-1)
+
   return (
-    <group>
+    <ExhibitHall focused={focused} onClear={() => setPicked(-1)}>
       <group position={[-3.4, 0, -2.2]}>
         <mesh geometry={OBS_BASE} position={[0, 0.5, 0]} material={mat.stone} />
         <mesh geometry={OBS_TOWER} position={[0, 3.5, 0]} material={mat.marble} />
@@ -1668,6 +1789,23 @@ export function ScientificShores({ d }: LandmarkProps) {
         <Lighthouse />
       </group>
 
+      {/* The subjects, along the beach. */}
+      <mesh geometry={shore.walk} material={RIBBON_MAT} receiveShadow />
+      <Exhibits
+        d={d}
+        focused={focused}
+        items={shore.stations}
+        geometry={STATION}
+        material={STATION_MAT}
+        labelHeight={2.05}
+        extent={2.2}
+        marker={{ geometry: STATION_HALO, material: ACCENT.science }}
+        picked={picked}
+        onPick={setPicked}
+        onSubFocus={onSubFocus}
+      />
+      <InstancedLabels atlas={shore.atlas} placements={shore.labels} fade={[22, 40]} billboard={false} />
+
       {/* Jetty: a deck spanning the posts, each post sunk to the sea floor. */}
       <mesh
         geometry={UNIT_BOX}
@@ -1685,12 +1823,12 @@ export function ScientificShores({ d }: LandmarkProps) {
           <Instance key={i} scale={[0.34, 4.5, 0.34]} position={[p.lx, -d.pad + 1.1 - 2.25, p.lz]} />
         ))}
       </Instances>
-    </group>
+    </ExhibitHall>
   )
 }
 
 // ===========================================================================
-// Artistic Arboretum — amphitheatre, torus-knot sculpture, a grove
+// Artistic Arboretum — an amphitheatre, and eight galleries in the grove
 // ===========================================================================
 
 /**
@@ -1728,8 +1866,91 @@ const AMPHI_AISLES = [Math.PI * 0.28, Math.PI * 0.5, Math.PI * 0.72]
 // The single most tessellated object in the scene: 256x40x2 = 20,480 triangles
 // for a sculpture about three units across. 128x12 gives 3,072.
 const KNOT = new THREE.TorusKnotGeometry(1.55, 0.42, 512, 64, 2, 3)
-const EASEL_LEG = new THREE.CylinderGeometry(0.07, 0.09, 3, 40)
-const CANVAS = new THREE.BoxGeometry(2.4, 1.8, 0.12)
+
+/**
+ * A pedestal with the work upon it, turned as one profile: base, shaft,
+ * capital, and the piece.
+ *
+ * The piece is an orb. Sixty-eight works in eight media cannot each be
+ * modelled, and a stand-in that is honest about being one — the same form
+ * on every pedestal, in its medium's colour — reads better than sixty-eight
+ * bad likenesses would. The name is what identifies a work, and it follows
+ * the pointer.
+ */
+const PEDESTAL = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, 0)
+  at(0.3, 0)
+  at(0.3, 0.06)
+  at(0.17, 0.1)
+  at(0.12, 0.15)
+  at(0.105, 0.92) // a slight taper up the shaft
+  at(0.15, 0.98)
+  at(0.17, 1.03) // capital
+  // The orb, from just under its equator round to its pole.
+  for (let i = 0; i <= 9; i++) {
+    const ang = -1.35 + (i / 9) * (1.35 + Math.PI / 2)
+    at(Math.max(0, 0.21 * Math.cos(ang)), 1.27 + 0.21 * Math.sin(ang))
+  }
+  return new THREE.LatheGeometry(p, 28)
+})()
+const PEDESTAL_MAT = std({ color: '#ffffff', roughness: 0.4, metalness: 0.2 }, DRESSED)
+const GALLERY_HALO = new THREE.TorusGeometry(0.5, 0.05, 10, 40)
+
+/** The galleries' ring: its centre radius, and the grid within each. */
+const GALLERY_R = 7.65
+const GALLERY_DR = 0.75
+const GALLERY_DT = 0.85
+
+type Galleries = {
+  works: Exhibit[]
+  media: LabelPlacement[]
+  mediaAtlas: LabelAtlas
+}
+
+/**
+ * Eight galleries round the amphitheatre, one per medium.
+ *
+ * Each is a small grid of pedestals — three deep, as wide as the medium
+ * needs — set on the ring where the grove used to begin, with the medium's
+ * name over it. The grove now stands outside the ring, so the galleries are
+ * clearings in it, which is what a sculpture garden is.
+ */
+function layoutGalleries(d: District): Galleries {
+  const works: Exhibit[] = []
+  const media: LabelPlacement[] = []
+  MEDIA.forEach((medium, k) => {
+    const a = d.seaward + (k / MEDIA.length) * Math.PI * 2
+    const rx = Math.cos(a)
+    const rz = Math.sin(a)
+    const tx = -Math.sin(a)
+    const tz = Math.cos(a)
+    const rows = Math.min(3, medium.works.length)
+    const cols = Math.ceil(medium.works.length / rows)
+    medium.works.forEach((work, i) => {
+      const col = Math.floor(i / rows)
+      const row = i % rows
+      const r = GALLERY_R + (row - (rows - 1) / 2) * GALLERY_DR
+      const t = (col - (cols - 1) / 2) * GALLERY_DT
+      const x = rx * r + tx * t
+      const z = rz * r + tz * t
+      works.push({
+        name: work.title,
+        article: work.article,
+        kicker: `${work.artist} · ${work.year}`,
+        x,
+        y: groundAt(d, x, z),
+        z,
+        color: medium.color,
+      })
+    })
+    const cx = rx * GALLERY_R
+    const cz = rz * GALLERY_R
+    media.push({ cell: k, x: cx, y: groundAt(d, cx, cz) + 2.7, z: cz, width: 2.4 })
+  })
+  return { works, media, mediaAtlas: makeLabelAtlas(MEDIA.map((medium) => medium.name)) }
+}
 
 /*
   A tree, rather than a lollipop.
@@ -1786,18 +2007,24 @@ const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
   lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62),
 )
 
-export function ArtisticArboretum({ d }: LandmarkProps) {
+export function ArtisticArboretum({ d, focused, onSubFocus }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
   useFrame((_, dt) => {
     knot.current.rotation.y += dt * 0.35
     knot.current.rotation.z += dt * 0.12
   })
 
-  const grove = useMemo(() => scatter(d, 22, 7.5, 11.0, 0xa27), [d])
+  // Outside the galleries' ring, so they stand among trees rather than in a
+  // field of them.
+  const grove = useMemo(() => scatter(d, 20, 9.4, 12.2, 0xa27), [d])
+  const galleries = useMemo(() => layoutGalleries(d), [d])
+  const [picked, setPicked] = useState(-1)
 
   return (
-    <group>
-      <group position={[-1.8, 0, 1.4]} rotation={[0, -0.5, 0]}>
+    <ExhibitHall focused={focused} onClear={() => setPicked(-1)}>
+      {/* The amphitheatre, at the centre and a little smaller than it was,
+          with the sculpture on its stage. */}
+      <group position={[0, 0, 0.4]} rotation={[0, -0.5, 0]} scale={0.72}>
         {SEAT_TIERS.map((t, i) => (
           <group key={i}>
             <mesh geometry={t.tread} rotation={[-Math.PI / 2, 0, 0]} position={[0, t.y, 0]} material={mat.stoneBoth} />
@@ -1826,21 +2053,29 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
             }),
           )}
         </Instances>
+
+        <group position={[0, 0.32, 0]} scale={0.8}>
+          <mesh geometry={PLINTH_BASE} scale={[0.62, 1, 0.62]} position={[0, 0.35, 0]} material={mat.marble} />
+          <mesh geometry={UNIT_BOX} scale={[1.1, 2.2, 1.1]} position={[0, 1.8, 0]} material={mat.marble} />
+          <mesh ref={knot} geometry={KNOT} position={[0, 4.9, 0]} material={ACCENT.art} userData={{ noShadow: true }} />
+        </group>
       </group>
 
-      <group position={[4.6, 0, -3.2]}>
-        <mesh geometry={PLINTH_BASE} scale={[0.62, 1, 0.62]} position={[0, 0.35, 0]} material={mat.marble} />
-        <mesh geometry={UNIT_BOX} scale={[1.1, 2.2, 1.1]} position={[0, 1.8, 0]} material={mat.marble} />
-        <mesh ref={knot} geometry={KNOT} position={[0, 4.9, 0]} material={ACCENT.art} userData={{ noShadow: true }} />
-      </group>
-
-      <group position={[5.0, groundAt(d, 5.0, 3.4), 3.4]} rotation={[0, -0.9, 0]}>
-        <mesh geometry={EASEL_LEG} position={[-0.7, 1.5, 0]} rotation={[0, 0, 0.09]} material={mat.wood} />
-        <mesh geometry={EASEL_LEG} position={[0.7, 1.5, 0]} rotation={[0, 0, -0.09]} material={mat.wood} />
-        <mesh geometry={EASEL_LEG} position={[0, 1.5, -0.6]} rotation={[0.14, 0, 0]} material={mat.wood} />
-        <mesh geometry={CANVAS} position={[0, 2.4, 0.1]} material={mat.canvasCloth} />
-        <mesh geometry={CANVAS} scale={[0.82, 0.72, 1]} position={[0, 2.4, 0.18]} material={ACCENT.art} />
-      </group>
+      {/* The galleries. */}
+      <Exhibits
+        d={d}
+        focused={focused}
+        items={galleries.works}
+        geometry={PEDESTAL}
+        material={PEDESTAL_MAT}
+        labelHeight={1.85}
+        extent={2.2}
+        marker={{ geometry: GALLERY_HALO, material: ACCENT.art }}
+        picked={picked}
+        onPick={setPicked}
+        onSubFocus={onSubFocus}
+      />
+      <InstancedLabels atlas={galleries.mediaAtlas} placements={galleries.media} fade={[60, 95]} />
 
       {/* The lathe stands on the ground rather than being centred on it, so the
           root flare meets the terrain instead of floating half-buried. */}
@@ -1876,7 +2111,7 @@ export function ArtisticArboretum({ d }: LandmarkProps) {
         )}
       </Instances>
       ))}
-    </group>
+    </ExhibitHall>
   )
 }
 

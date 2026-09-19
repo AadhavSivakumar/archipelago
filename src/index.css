@@ -362,6 +362,16 @@ canvas {
   color: var(--ink-dim);
 }
 
+.dossier__hint {
+  margin: -6px 0 16px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
 .dossier__topics {
   display: flex;
   flex-direction: column;
@@ -606,6 +616,11 @@ canvas {
   background: rgba(255, 225, 150, 0.94);
   border-radius: 999px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.exhibit--hover {
+  color: #f4f6fa;
+  background: rgba(14, 20, 32, 0.82);
 }
 
 /*

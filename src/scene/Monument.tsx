@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import { prefersReducedMotion } from '../animations/gsap'
 import { sampleHeight } from './terrain'
 import { weather } from './surface'
+import { globeTextures } from './globeTexture'
 
 /**
  * The armillary globe, at the centre of the archipelago.
@@ -20,19 +21,33 @@ import { weather } from './surface'
  */
 export const MONUMENT_AT = { x: 0, z: -14 }
 
-const GLOBE = new THREE.SphereGeometry(4.6, 128, 96)
-const GLOBE_MAT = weather(
-  new THREE.MeshStandardMaterial({ color: '#2b6288', roughness: 0.46, metalness: 0.18 }),
-  // Fine and shallow: this is meant to read as an ocean painted onto a globe,
-  // so it wants the tooth of the paint rather than a rock face.
-  { grain: 3.4, mottle: 0.2, bump: 0.16, rough: 0.14 },
-)
-
-const LANDMASS = new THREE.SphereGeometry(1, 64, 44)
-const LANDMASS_MAT = weather(
-  new THREE.MeshStandardMaterial({ color: '#4a8d57', roughness: 0.84 }),
-  { grain: 6, mottle: 0.3, bump: 0.3, rough: 0.14 },
-)
+const GLOBE = new THREE.SphereGeometry(4.6, 160, 120)
+/*
+  The Earth itself — see globeTexture.ts. Lazily, because the texture is a
+  canvas and canvases need a document: module scope runs in the worker too.
+  White under the map so the painted colours are the colours.
+*/
+const globeMaterial = (() => {
+  let m: THREE.MeshStandardMaterial | null = null
+  return () => {
+    if (m) return m
+    const { map, bump } = globeTextures()
+    m = weather(
+      new THREE.MeshStandardMaterial({
+        color: '#ffffff',
+        map,
+        bumpMap: bump,
+        bumpScale: 0.6,
+        roughness: 0.55,
+        metalness: 0.08,
+      }),
+      // Fine and shallow: this is meant to read as a painted globe, so it
+      // wants the tooth of the paint rather than a rock face.
+      { grain: 3.4, mottle: 0.12, bump: 0.1, rough: 0.12 },
+    )
+    return m
+  }
+})()
 
 const BRASS = weather(
   new THREE.MeshStandardMaterial({ color: '#9c7f3f', roughness: 0.36, metalness: 0.85 }),
@@ -94,26 +109,6 @@ const STEPS = [
 const TICKS = Array.from({ length: 36 }, (_, i) => (i / 36) * Math.PI * 2)
 const TICK = new THREE.BoxGeometry(0.07, 0.34, 0.07)
 
-const UP = new THREE.Vector3(0, 1, 0)
-const CONTINENTS = (
-  [
-    [0.4, 0.55, 0.7, 1.9, 1.35],
-    [-0.7, 0.2, 0.6, 1.55, 1.1],
-    [0.1, -0.75, 0.6, 1.45, 1.2],
-    [-0.5, -0.4, -0.75, 1.65, 1.0],
-    [0.75, -0.1, -0.6, 1.25, 0.9],
-    [-0.15, 0.85, -0.5, 1.1, 1.0],
-  ] as const
-).map(([x, y, z, sx, sz]) => {
-  const n = new THREE.Vector3(x, y, z).normalize()
-  const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, n))
-  return {
-    position: n.clone().multiplyScalar(4.56).toArray() as [number, number, number],
-    rotation: [e.x, e.y, e.z] as [number, number, number],
-    scale: [sx, 0.16, sz] as [number, number, number],
-  }
-})
-
 export function Monument({ visible }: { visible: boolean }) {
   const globe = useRef<THREE.Group>(null!)
 
@@ -139,22 +134,7 @@ export function Monument({ visible }: { visible: boolean }) {
           freezing its shadow is exact rather than approximate.
         */}
         <group ref={globe}>
-          <mesh geometry={GLOBE} material={GLOBE_MAT} />
-          {/*
-            The continents DO change silhouette — they stand proud of the sphere
-            — so they are excluded from the frozen map. Via a wrapping group,
-            never a userData prop on <Instances>: drei spreads caller props over
-            its own `userData: { instances, limit, frames }`, and R3F assigns
-            plain objects wholesale, so that would delete `instances` and make
-            PositionMesh.raycast throw on every pointer move.
-          */}
-          <group userData={{ noShadow: true }}>
-            <Instances geometry={LANDMASS} material={LANDMASS_MAT} limit={CONTINENTS.length}>
-              {CONTINENTS.map((c, i) => (
-                <Instance key={i} position={c.position} rotation={c.rotation} scale={c.scale} />
-              ))}
-            </Instances>
-          </group>
+          <mesh geometry={GLOBE} material={globeMaterial()} />
         </group>
 
         {/* Armillary: the rings stay fixed while the globe turns inside them. */}

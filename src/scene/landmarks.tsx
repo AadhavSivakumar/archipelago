@@ -29,7 +29,7 @@ import { ERAS, EVENTS, eraOf, yearLabel, type Era } from '../content/history'
 import { PANTHEONS, type Pantheon } from '../content/pantheons'
 import { layoutTree } from './familyTree'
 import { MEDIA } from '../content/artworks'
-import { SUBJECTS } from '../content/sciences'
+import { BRANCHES, SUBJECTS } from '../content/sciences'
 import { groupOf } from '../content/navigation'
 import { publishView, select, useDistrictSelection } from '../state/selection'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -530,32 +530,49 @@ const COLONNADE = Array.from({ length: 14 }, (_, i) => {
   and its neighbours on either side need to be clear of it.
 */
 const ORBIT_Y = 7
-const ORBIT_R = 11
-const ORBIT_SPEED = 0.09
+/**
+ * Two rings, turning opposite ways.
+ *
+ * Fourteen islets on one circle would sit four units apart, and the widest
+ * tree is over ten across. Two circles of seven, one inside the other, give
+ * every islet room for its tree; turning them against each other keeps the
+ * whole thing reading as an orrery rather than a carousel.
+ */
+const RINGS = [
+  { r: 10.6, speed: 0.09, phase: 0 },
+  { r: 15.2, speed: -0.055, phase: Math.PI / 7 },
+] as const
+const RING_SIZE = Math.ceil(PANTHEONS.length / RINGS.length)
+const ringOf = (pantheon: number) => Math.min(RINGS.length - 1, Math.floor(pantheon / RING_SIZE))
 /** How far above an islet's turf its tree's lowest row hangs. */
 const TREE_LIFT = 2.2
 const TREES = PANTHEONS.map(layoutTree)
 
-const ISLETS: Exhibit[] = PANTHEONS.map((p, i) => {
-  const a = (i / PANTHEONS.length) * Math.PI * 2
-  const tree = TREES[i]
-  return {
-    name: p.name,
-    article: p.article,
-    kicker: `Pantheon · ${p.deities.length} figures`,
-    x: Math.cos(a) * ORBIT_R,
-    y: Math.sin(a * 1.7) * 1.0,
-    z: Math.sin(a) * ORBIT_R,
-    // Each islet turned to its own bearing, so the eight are not one shape
-    // repeated round a circle, which is exactly how it reads when they share
-    // a rotation and the orbit spins them past the camera.
-    yaw: i * 1.27,
-    color: p.color,
-    // Frame the whole tree, not the islet.
-    extent: Math.max(tree.halfWidth, tree.height / 2) + 0.7,
-    elevation: 0.26,
-  }
-})
+/** The islets of each ring, in that ring's own orbiting frame. */
+const ISLET_RINGS: Exhibit[][] = RINGS.map((ring, k) =>
+  PANTHEONS.map((p, i) => ({ p, i }))
+    .filter(({ i }) => ringOf(i) === k)
+    .map(({ p, i }, j, members) => {
+      const a = ring.phase + (j / members.length) * Math.PI * 2
+      const tree = TREES[i]
+      return {
+        name: p.name,
+        article: p.article,
+        kicker: `Pantheon · ${p.deities.length} figures`,
+        x: Math.cos(a) * ring.r,
+        y: Math.sin(a * 1.7 + k) * 1.0,
+        z: Math.sin(a) * ring.r,
+        // Each islet turned to its own bearing, so they are not one shape
+        // repeated round a circle, which is exactly how it reads when they
+        // share a rotation and the orbit spins them past the camera.
+        yaw: i * 1.27,
+        color: p.color,
+        // Frame the whole tree, not the islet.
+        extent: Math.max(tree.halfWidth, tree.height / 2) + 0.7,
+        elevation: 0.26,
+      }
+    }),
+)
 
 /** Name labels for a pantheon's figures, drawn the first time it is chosen. */
 const TREE_ATLASES = new Map<string, LabelAtlas>()
@@ -571,19 +588,22 @@ function treeAtlas(p: Pantheon): LabelAtlas {
 const NO_LINES = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
 
 export function IdeologyIsles({ d, focused }: LandmarkProps) {
-  const orbit = useRef<THREE.Group>(null!)
+  const orbits = useRef<(THREE.Group | null)[]>([])
   useFrame((_, dt) => {
     // Held still while the district is focused; see the note on the islets.
-    if (!focused) orbit.current.rotation.y += dt * ORBIT_SPEED
+    if (focused) return
+    orbits.current.forEach((orbit, k) => {
+      if (orbit) orbit.rotation.y += dt * RINGS[k].speed
+    })
   })
 
   const selection = useDistrictSelection(d.id)
   const pantheon = selection?.group ?? -1
   const deity = selection?.item ?? -1
 
-  /** An islet's authored position, carried round by the orbit. */
-  const islet = useCallback((it: Exhibit): [number, number, number] => {
-    const a = orbit.current?.rotation.y ?? 0
+  /** An islet's authored position, carried round by its ring. */
+  const islet = useCallback((it: Exhibit, ring: number): [number, number, number] => {
+    const a = orbits.current[ring]?.rotation.y ?? 0
     const c = Math.cos(a)
     const s = Math.sin(a)
     return [it.x * c + it.z * s, ORBIT_Y + it.y, -it.x * s + it.z * c]
@@ -591,9 +611,9 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
 
   /** The camera frames the tree over the islet, not the islet. */
   const treeCentre = useCallback(
-    (it: Exhibit, i: number): [number, number, number] => {
-      const [x, y, z] = islet(it)
-      return [x, y + TREE_LIFT + TREES[i].height / 2, z]
+    (it: Exhibit, ring: number, pantheonIndex: number): [number, number, number] => {
+      const [x, y, z] = islet(it, ring)
+      return [x, y + TREE_LIFT + TREES[pantheonIndex].height / 2, z]
     },
     [islet],
   )
@@ -611,7 +631,25 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
     current rotation, which is safe because the orbit only turns while the
     district is unfocused, and nothing can be chosen then.
   */
-  const anchor = useMemo(() => (pantheon >= 0 ? islet(ISLETS[pantheon]) : null), [pantheon, islet])
+  const anchor = useMemo(
+    () => (pantheon >= 0 ? islet(ISLET_RINGS[ringOf(pantheon)][pantheon % RING_SIZE], ringOf(pantheon)) : null),
+    [pantheon, islet],
+  )
+
+  // The arrow keys walk the pantheons while none has a god chosen under it;
+  // the trees' own collections take them over once one does.
+  useEffect(() => {
+    if (!focused || deity >= 0) return
+    const n = PANTHEONS.length
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') pickPantheon(pantheon < 0 ? 0 : (pantheon + 1) % n)
+      else if (e.key === 'ArrowLeft') pickPantheon(pantheon < 0 ? n - 1 : (pantheon - 1 + n) % n)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focused, deity, pantheon, pickPantheon])
 
   const tree = pantheon >= 0 ? TREES[pantheon] : null
   // Left to right as seen from the seaward bearing: the camera's right vector.
@@ -682,31 +720,41 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
       <mesh geometry={SPIRE} position={[0, 13.5, 0]} material={mat.gold} />
 
       {/* noShadow: still rotating after the shadow map freezes. */}
-      <group ref={orbit} position={[0, ORBIT_Y, 0]} userData={{ noShadow: true }}>
-        <Exhibits
-          d={d}
-          focused={focused}
-          items={ISLETS}
-          geometry={TOTEM}
-          material={TOTEM_MAT}
-          lift={1.6}
-          parts={[
-            { geometry: ISLET_ROCK, material: mat.darkStone },
-            { geometry: ISLET_TURF, material: mat.leafWarm, lift: 0.16 },
-          ]}
-          // Under the islet: the tree takes the air above it.
-          labelHeight={-2.6}
-          marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.3 }}
-          keys={pantheon < 0}
-          picked={pantheon}
-          onPick={pickPantheon}
-          onSubFocus={(view) => {
-            pantheonView.current = view
-            if (deity < 0) publishView(view)
+      {ISLET_RINGS.map((islets, ring) => (
+        <group
+          key={ring}
+          ref={(el) => {
+            orbits.current[ring] = el
           }}
-          place={treeCentre}
-        />
-      </group>
+          position={[0, ORBIT_Y, 0]}
+          rotation={[0, RINGS[ring].phase, 0]}
+          userData={{ noShadow: true }}
+        >
+          <Exhibits
+            d={d}
+            focused={focused}
+            items={islets}
+            geometry={TOTEM}
+            material={TOTEM_MAT}
+            lift={1.6}
+            parts={[
+              { geometry: ISLET_ROCK, material: mat.darkStone },
+              { geometry: ISLET_TURF, material: mat.leafWarm, lift: 0.16 },
+            ]}
+            // Under the islet: the tree takes the air above it.
+            labelHeight={-2.6}
+            marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.3 }}
+            keys={false}
+            picked={ringOf(pantheon) === ring && pantheon >= 0 ? pantheon % RING_SIZE : -1}
+            onPick={(i) => pickPantheon(i < 0 ? -1 : ring * RING_SIZE + i)}
+            onSubFocus={(view) => {
+              pantheonView.current = view
+              if (deity < 0) publishView(view)
+            }}
+            place={(it, i) => treeCentre(it, ring, ring * RING_SIZE + i)}
+          />
+        </group>
+      ))}
 
       {/* Always mounted, so its program is compiled with everything else. */}
       <lineSegments geometry={lineage} material={LINEAGE_MAT} raycast={() => null} userData={{ noShadow: true }} />
@@ -740,8 +788,8 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
 
 /*
   The district is the timeline. Sixty-odd events, one stele each, stand along
-  a processional path that starts at the water's edge and winds two and a half
-  turns in to the ziggurat: the oldest at the outside, the present at the
+  a processional path that starts at the water's edge and winds three and a
+  half turns in to the ziggurat: the oldest at the outside, the present at the
   centre. The path is coloured by era and so are the stones, so the whole
   sweep of it reads from the district view — the long ochre reach of the
   ancient world, the short bright coil of the last two centuries — before a
@@ -766,8 +814,8 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
  * arc and the edges carry a bevel, then roughened enough to be cut stone.
  */
 const STELE = (() => {
-  const w = 0.56
-  const h = 1.25
+  const w = 0.5
+  const h = 1.15
   const r = w / 2
   const shape = new THREE.Shape()
   shape.moveTo(-r, 0)
@@ -791,13 +839,13 @@ const STELE_MAT = std({ color: '#ffffff', roughness: 0.86 }, QUARRIED)
 /** A ring on the ground under the chosen stele. */
 const HALO = new THREE.TorusGeometry(0.72, 0.065, 10, 48)
 
-const TIMELINE_TURNS = 2.5
+const TIMELINE_TURNS = 3.5
 /** Path centreline radii. The outer turn rides the plateau's shoulder. */
-const TIMELINE_R_OUT = 8.8
-const TIMELINE_R_IN = 4.4
-const TIMELINE_PATH_W = 0.9
+const TIMELINE_R_OUT = 9.2
+const TIMELINE_R_IN = 4.3
+const TIMELINE_PATH_W = 0.75
 /** How far outside the path's edge each stele stands. */
-const STELE_STANDOFF = 0.32
+const STELE_STANDOFF = 0.28
 
 type Timeline = {
   exhibits: Exhibit[]
@@ -906,12 +954,13 @@ function layoutTimeline(d: District): Timeline {
   */
   const eraIds = Object.keys(ERAS) as Era[]
   const atlas = makeLabelAtlas([...EVENTS.map((ev) => yearLabel(ev.year)), ...eraIds.map((id) => ERAS[id].name)])
+  // Three heights, cycling, so that neighbours a unit apart do not overprint.
   const years: LabelPlacement[] = exhibits.map((e, i) => ({
     cell: i,
     x: e.x,
-    y: e.y + 1.55 + (i % 2) * 0.34,
+    y: e.y + 1.4 + (i % 3) * 0.3,
     z: e.z,
-    width: 1.4,
+    width: 1.25,
   }))
   const eras: LabelPlacement[] = []
   let lastEra: Era | null = null
@@ -920,7 +969,7 @@ function layoutTimeline(d: District): Timeline {
     if (era === lastEra) return
     lastEra = era
     const e = exhibits[i]
-    eras.push({ cell: n + eraIds.indexOf(era), x: e.x, y: e.y + 2.45, z: e.z, width: 2.4 })
+    eras.push({ cell: n + eraIds.indexOf(era), x: e.x, y: e.y + 2.55, z: e.z, width: 2.4 })
   })
 
   // The gate: a little before the first stele, on the path's own bearing.
@@ -985,7 +1034,7 @@ export function HistoricalHabitat({ d, focused }: LandmarkProps) {
         items={timeline.exhibits}
         geometry={STELE}
         material={STELE_MAT}
-        labelHeight={2.95}
+        labelHeight={3.05}
         extent={3.0}
         marker={{ geometry: HALO, material: ACCENT.history }}
         picked={picked}
@@ -1635,36 +1684,42 @@ const STATION = (() => {
 })()
 const STATION_MAT = std({ color: '#ffffff', roughness: 0.62, metalness: 0.08 }, DRESSED)
 const STATION_HALO = new THREE.TorusGeometry(0.62, 0.055, 10, 44)
-/** Where the stations stand: on the beach, between the plateau and the walk. */
-const SHORE_R = 8.2
+/** Where the stations stand: two staggered rows on the beach, inside the walk. */
+const SHORE_ROWS = [8.7, 7.8]
 /** Half the arc of beach they occupy, either side of the seaward bearing. */
-const SHORE_HALF = 0.9
+const SHORE_HALF = 1.05
 
 type ShoreWalk = {
   stations: Exhibit[]
   walk: THREE.BufferGeometry
   atlas: LabelAtlas
   labels: LabelPlacement[]
+  branchAtlas: LabelAtlas
+  branchLabels: LabelPlacement[]
 }
 
 /**
  * The subjects, as stations along the beach.
  *
- * Eleven panels on an arc of the shore, evenly spaced, each facing the water
- * — which is the side the camera comes from — with a boardwalk running along
- * the sand in front of them. The arc is centred on the seaward bearing
- * because that is where the beach is: the ground survey puts the low, flat
- * sand between about forty and a hundred and forty degrees, and either side
- * of that the island rises.
+ * Twenty-odd panels on an arc of the shore, evenly spaced and alternating
+ * between two rows so that neighbours do not touch, each facing the water —
+ * which is the side the camera comes from — with a boardwalk running along
+ * the sand in front of them and each branch of science named over its
+ * stretch. The arc is centred on the seaward bearing because that is where
+ * the beach is: the ground survey puts the low, flat sand between about
+ * thirty and a hundred and fifty degrees, and either side of that the island
+ * rises.
  */
 function layoutShoreWalk(d: District): ShoreWalk {
   const n = SUBJECTS.length
   const a0 = d.seaward - SHORE_HALF
   const a1 = d.seaward + SHORE_HALF
+  const angleOf = (i: number) => a0 + (i / (n - 1)) * (a1 - a0)
   const stations: Exhibit[] = SUBJECTS.map((subject, i) => {
-    const a = a0 + (i / (n - 1)) * (a1 - a0)
-    const x = Math.cos(a) * SHORE_R
-    const z = Math.sin(a) * SHORE_R
+    const a = angleOf(i)
+    const r = SHORE_ROWS[i % SHORE_ROWS.length]
+    const x = Math.cos(a) * r
+    const z = Math.sin(a) * r
     return {
       name: subject.name,
       article: subject.article,
@@ -1682,7 +1737,7 @@ function layoutShoreWalk(d: District): ShoreWalk {
   const plank = new THREE.Color('#6b4a2e')
   const line = Array.from({ length: M + 1 }, (_, k) => {
     const a = a0 - 0.1 + (k / M) * (a1 - a0 + 0.2)
-    const r = SHORE_R + 1.0
+    const r = SHORE_ROWS[0] + 1.0
     return { x: Math.cos(a) * r, z: Math.sin(a) * r, color: plank }
   })
   const walk = groundRibbon(d, line, 1.1)
@@ -1692,7 +1747,7 @@ function layoutShoreWalk(d: District): ShoreWalk {
   // sign rather than as a blank board with a caption floating over it.
   const atlas = makeLabelAtlas(SUBJECTS.map((subject) => subject.name))
   const labels: LabelPlacement[] = stations.map((st, i) => {
-    const a = a0 + (i / (n - 1)) * (a1 - a0)
+    const a = angleOf(i)
     // The panel's centre, then a little along its normal.
     const out = 0.12 + Math.cos(STATION_LEAN) * 0.07
     return {
@@ -1705,7 +1760,18 @@ function layoutShoreWalk(d: District): ShoreWalk {
       pitch: STATION_LEAN,
     }
   })
-  return { stations, walk, atlas, labels }
+
+  // Each branch's name over the middle of its stretch of beach.
+  const branchAtlas = makeLabelAtlas(BRANCHES.map((b) => b.name))
+  const branchLabels: LabelPlacement[] = BRANCHES.map((b, k) => {
+    const members = SUBJECTS.map((s, i) => ({ s, i })).filter(({ s }) => s.branch === b.id)
+    const a = members.reduce((sum, { i }) => sum + angleOf(i), 0) / members.length
+    const r = (SHORE_ROWS[0] + SHORE_ROWS[1]) / 2
+    const x = Math.cos(a) * r
+    const z = Math.sin(a) * r
+    return { cell: k, x, y: groundAt(d, x, z) + 3.0, z, width: 2.6 }
+  })
+  return { stations, walk, atlas, labels, branchAtlas, branchLabels }
 }
 
 export function ScientificShores({ d, focused }: LandmarkProps) {
@@ -1760,7 +1826,7 @@ export function ScientificShores({ d, focused }: LandmarkProps) {
   const shore = useMemo(() => layoutShoreWalk(d), [d])
   const picked = useDistrictSelection(d.id)?.item ?? -1
   const pick = useCallback(
-    (i: number) => select(i < 0 ? null : { district: d.id, group: 0, item: i }),
+    (i: number) => select(i < 0 ? null : { district: d.id, group: groupOf(d.id, i), item: i }),
     [d.id],
   )
 
@@ -1805,6 +1871,7 @@ export function ScientificShores({ d, focused }: LandmarkProps) {
         onPick={pick}
       />
       <InstancedLabels atlas={shore.atlas} placements={shore.labels} fade={[22, 40]} billboard={false} />
+      <InstancedLabels atlas={shore.branchAtlas} placements={shore.branchLabels} fade={[60, 95]} />
 
       {/* Jetty: a deck spanning the posts, each post sunk to the sea floor. */}
       <mesh
@@ -1899,8 +1966,8 @@ const PEDESTAL_MAT = std({ color: '#ffffff', roughness: 0.4, metalness: 0.2 }, D
 const GALLERY_HALO = new THREE.TorusGeometry(0.5, 0.05, 10, 40)
 
 /** The galleries' ring: its centre radius, and the grid within each. */
-const GALLERY_R = 7.65
-const GALLERY_DR = 0.75
+const GALLERY_R = 7.7
+const GALLERY_DR = 0.7
 const GALLERY_DT = 0.85
 
 type Galleries = {
@@ -1912,7 +1979,7 @@ type Galleries = {
 /**
  * Eight galleries round the amphitheatre, one per medium.
  *
- * Each is a small grid of pedestals — three deep, as wide as the medium
+ * Each is a small grid of pedestals — four deep, as wide as the medium
  * needs — set on the ring where the grove used to begin, with the medium's
  * name over it. The grove now stands outside the ring, so the galleries are
  * clearings in it, which is what a sculpture garden is.
@@ -1926,7 +1993,7 @@ function layoutGalleries(d: District): Galleries {
     const rz = Math.sin(a)
     const tx = -Math.sin(a)
     const tz = Math.cos(a)
-    const rows = Math.min(3, medium.works.length)
+    const rows = Math.min(4, medium.works.length)
     const cols = Math.ceil(medium.works.length / rows)
     medium.works.forEach((work, i) => {
       const col = Math.floor(i / rows)

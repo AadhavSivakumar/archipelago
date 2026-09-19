@@ -1,5 +1,5 @@
 /**
- * The Ideology Isles: eight mythologies, each with the family tree of its gods.
+ * The Ideology Isles: fourteen mythologies, each with the family tree of its gods.
  *
  * A deity names its parents by name, within the same pantheon. From that the
  * tree lays itself out: a figure's generation is one below its parents', and a
@@ -94,8 +94,8 @@ export const PANTHEONS: readonly Pantheon[] = [
       { name: 'Týr', article: 'Týr', parents: ['Odin'] },
       { name: 'Sif', article: 'Sif' },
       { name: 'Þrúðr', article: 'Þrúðr', parents: ['Thor', 'Sif'] },
-      { name: 'Magni', article: 'Magni and Móði', parents: ['Thor'] },
-      { name: 'Móði', article: 'Magni and Móði', parents: ['Thor'] },
+      { name: 'Magni', article: 'Móði and Magni', parents: ['Thor'] },
+      { name: 'Móði', article: 'Móði and Magni', parents: ['Thor'] },
       { name: 'Nanna', article: 'Nanna (Norse deity)' },
       { name: 'Forseti', article: 'Forseti', parents: ['Baldr', 'Nanna'] },
       { name: 'Njörðr', article: 'Njörðr' },
@@ -217,11 +217,15 @@ export const PANTHEONS: readonly Pantheon[] = [
       { name: 'Ninigi', article: 'Ninigi-no-Mikoto', parents: ['Ame-no-Oshihomimi'] },
       { name: 'Konohanasakuya-hime', article: 'Konohanasakuya-hime' },
       { name: 'Hoori', article: 'Hoori', parents: ['Ninigi', 'Konohanasakuya-hime'] },
-      { name: 'Toyotama-hime', article: 'Toyotama-hime' },
+      { name: 'Ryūjin', article: 'Ryūjin' },
+      { name: 'Toyotama-hime', article: 'Toyotama-hime', parents: ['Ryūjin'] },
       { name: 'Ugayafukiaezu', article: 'Ugayafukiaezu', parents: ['Hoori', 'Toyotama-hime'] },
       { name: 'Jimmu', article: 'Emperor Jimmu', parents: ['Ugayafukiaezu'] },
       { name: 'Ōkuninushi', article: 'Ōkuninushi' },
       { name: 'Inari', article: 'Inari Ōkami' },
+      { name: 'Sarutahiko', article: 'Sarutahiko Ōkami' },
+      { name: 'Ame-no-Uzume', article: 'Ame-no-Uzume' },
+      { name: 'Hachiman', article: 'Hachiman' },
     ],
   },
   {
@@ -243,6 +247,14 @@ export const PANTHEONS: readonly Pantheon[] = [
       { name: 'Mictlantecuhtli', article: 'Mictlantecuhtli' },
       { name: 'Mictecacihuatl', article: 'Mictecacihuatl' },
       { name: 'Xochiquetzal', article: 'Xochiquetzal' },
+      { name: 'Xochipilli', article: 'Xochipilli' },
+      { name: 'Xolotl', article: 'Xolotl', parents: ['Ōmeteōtl'] },
+      { name: 'Ehecatl', article: 'Ehecatl' },
+      { name: 'Tlazolteotl', article: 'Tlazolteotl' },
+      { name: 'Centeotl', article: 'Centeotl', parents: ['Tlazolteotl'] },
+      { name: 'Mayahuel', article: 'Mayahuel' },
+      { name: 'Itzpapalotl', article: 'Itzpapalotl' },
+      { name: 'Mixcoatl', article: 'Mixcoatl' },
     ],
   },
   {
@@ -269,6 +281,211 @@ export const PANTHEONS: readonly Pantheon[] = [
       { name: 'Manannán', article: 'Manannán mac Lir', parents: ['Lir'] },
       { name: 'The Morrígan', article: 'The Morrígan' },
       { name: 'Ogma', article: 'Ogma' },
+      { name: 'Goibniu', article: 'Goibniu' },
+      { name: 'Elatha', article: 'Elatha' },
+      { name: 'Ériu', article: 'Ériu' },
+      { name: 'Bres', article: 'Bres', parents: ['Elatha', 'Ériu'] },
+      { name: 'Macha', article: 'Macha' },
+      { name: 'Donn', article: 'Donn' },
+    ],
+  },
+  {
+    id: 'roman',
+    name: 'Roman',
+    article: 'Roman mythology',
+    color: '#d9a066',
+    /*
+      Not the Greek line with the names swapped, though the sky and the
+      harvest are shared: Rome's own figures are here — Janus, who has no
+      parents anywhere; Romulus, son of Mars and a Vestal; Faunus, grandson
+      of Saturn through Picus — and the borrowed ones keep Roman parentage,
+      following Ovid's Fasti and Metamorphoses.
+    */
+    deities: [
+      { name: 'Caelus', article: 'Caelus' },
+      { name: 'Terra', article: 'Terra (mythology)' },
+      { name: 'Saturn', article: 'Saturn (mythology)', parents: ['Caelus', 'Terra'] },
+      { name: 'Ops', article: 'Ops', parents: ['Caelus', 'Terra'] },
+      { name: 'Venus', article: 'Venus (mythology)', parents: ['Caelus'] },
+      { name: 'Jupiter', article: 'Jupiter (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Juno', article: 'Juno (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Neptune', article: 'Neptune (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Pluto', article: 'Pluto (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Ceres', article: 'Ceres (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Vesta', article: 'Vesta (mythology)', parents: ['Saturn', 'Ops'] },
+      { name: 'Picus', article: 'Picus', parents: ['Saturn'] },
+      { name: 'Mars', article: 'Mars (mythology)', parents: ['Jupiter', 'Juno'] },
+      { name: 'Vulcan', article: 'Vulcan (mythology)', parents: ['Jupiter', 'Juno'] },
+      { name: 'Minerva', article: 'Minerva', parents: ['Jupiter'] },
+      { name: 'Apollo', article: 'Apollo', parents: ['Jupiter'] },
+      { name: 'Diana', article: 'Diana (mythology)', parents: ['Jupiter'] },
+      { name: 'Mercury', article: 'Mercury (mythology)', parents: ['Jupiter'] },
+      { name: 'Proserpina', article: 'Proserpina', parents: ['Jupiter', 'Ceres'] },
+      { name: 'Cupid', article: 'Cupid', parents: ['Venus', 'Mars'] },
+      { name: 'Faunus', article: 'Faunus', parents: ['Picus'] },
+      { name: 'Rhea Silvia', article: 'Rhea Silvia' },
+      { name: 'Romulus', article: 'Romulus', parents: ['Mars', 'Rhea Silvia'] },
+      { name: 'Quirinus', article: 'Quirinus' },
+      { name: 'Janus', article: 'Janus' },
+      { name: 'Fortuna', article: 'Fortuna' },
+      { name: 'Bellona', article: 'Bellona (goddess)' },
+      { name: 'Flora', article: 'Flora (mythology)' },
+      { name: 'Liber', article: 'Liber' },
+    ],
+  },
+  {
+    id: 'chinese',
+    name: 'Chinese',
+    article: 'Chinese mythology',
+    color: '#e8907c',
+    /*
+      Less a family than a court. The creators and the culture heroes mostly
+      stand alone — Pangu, Nüwa, Fuxi, Shennong — and the lines of descent
+      that do exist run through the legendary emperors, so most of these are
+      members of the pantheon apart from any tree, which is honest to the
+      material.
+    */
+    deities: [
+      { name: 'Pangu', article: 'Pangu' },
+      { name: 'Nüwa', article: 'Nüwa' },
+      { name: 'Fuxi', article: 'Fuxi' },
+      { name: 'Shennong', article: 'Shennong' },
+      { name: 'Huangdi', article: 'Yellow Emperor' },
+      { name: 'Leizu', article: 'Leizu' },
+      { name: 'Shaohao', article: 'Shaohao', parents: ['Huangdi'] },
+      { name: 'Zhuanxu', article: 'Zhuanxu' },
+      { name: 'Emperor Ku', article: 'Emperor Ku' },
+      { name: 'Yao', article: 'Emperor Yao', parents: ['Emperor Ku'] },
+      { name: 'Shun', article: 'Emperor Shun' },
+      { name: 'Yu the Great', article: 'Yu the Great' },
+      { name: 'Jade Emperor', article: 'Jade Emperor' },
+      { name: 'Xiwangmu', article: 'Queen Mother of the West' },
+      { name: 'Di Jun', article: 'Di Jun' },
+      { name: 'Xihe', article: 'Xihe (deity)' },
+      { name: "Chang'e", article: "Chang'e" },
+      { name: 'Hou Yi', article: 'Hou Yi' },
+      { name: 'Chiyou', article: 'Chiyou' },
+      { name: 'Gonggong', article: 'Gonggong' },
+      { name: 'Zhurong', article: 'Zhurong' },
+      { name: 'Nezha', article: 'Nezha' },
+      { name: 'Sun Wukong', article: 'Sun Wukong' },
+      { name: 'Guanyin', article: 'Guanyin' },
+      { name: 'Erlang Shen', article: 'Erlang Shen' },
+      { name: 'Mazu', article: 'Mazu' },
+      { name: 'Zhong Kui', article: 'Zhong Kui' },
+      { name: 'Cangjie', article: 'Cangjie' },
+    ],
+  },
+  {
+    id: 'maori',
+    name: 'Māori',
+    article: 'Māori mythology',
+    color: '#8ab8c6',
+    /* The children of Rangi and Papa, as the tribes of the North Island tell it. */
+    deities: [
+      { name: 'Ranginui', article: 'Ranginui' },
+      { name: 'Papatūānuku', article: 'Papatūānuku' },
+      { name: 'Tāne', article: 'Tāne', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Tangaroa', article: 'Tangaroa', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Tāwhirimātea', article: 'Tāwhirimātea', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Tūmatauenga', article: 'Tūmatauenga', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Rongo', article: 'Rongo', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Haumia-tiketike', article: 'Haumia-tiketike', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Rūaumoko', article: 'Rūaumoko', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Whiro', article: 'Whiro', parents: ['Ranginui', 'Papatūānuku'] },
+      { name: 'Hine-nui-te-pō', article: 'Hine-nui-te-pō', parents: ['Tāne'] },
+      { name: 'Punga', article: 'Punga (mythology)', parents: ['Tangaroa'] },
+      { name: 'Tinirau', article: 'Tinirau', parents: ['Tangaroa'] },
+      { name: 'Māui', article: 'Māui (Māori mythology)' },
+      { name: 'Hina', article: 'Hina (goddess)' },
+      { name: 'Tāwhaki', article: 'Tāwhaki' },
+      { name: 'Uenuku', article: 'Uenuku' },
+      { name: 'Mahuika', article: 'Mahuika' },
+    ],
+  },
+  {
+    id: 'inca',
+    name: 'Inca',
+    article: 'Inca mythology',
+    color: '#e6c05a',
+    /* Viracocha's line, and the first Inca as children of the Sun. */
+    deities: [
+      { name: 'Viracocha', article: 'Viracocha' },
+      { name: 'Inti', article: 'Inti', parents: ['Viracocha'] },
+      { name: 'Mama Killa', article: 'Mama Killa', parents: ['Viracocha'] },
+      { name: 'Pachamama', article: 'Pachamama' },
+      { name: 'Mama Qucha', article: 'Mama Qucha' },
+      { name: 'Manco Cápac', article: 'Manco Cápac', parents: ['Inti', 'Mama Killa'] },
+      { name: 'Mama Ocllo', article: 'Mama Ocllo', parents: ['Inti', 'Mama Killa'] },
+      { name: 'Supay', article: 'Supay' },
+      { name: 'Urcuchillay', article: 'Urcuchillay' },
+      { name: 'Ekeko', article: 'Ekeko' },
+    ],
+  },
+  {
+    id: 'slavic',
+    name: 'Slavic',
+    article: 'Slavic paganism',
+    color: '#b8c7a0',
+    /*
+      The Slavs wrote nothing of their gods down, so the tree here is the
+      reconstruction of Ivanov and Toporov, with Katičić's reading of the
+      spring songs for Jarilo and Morana as the children of Perun and Mokosh.
+      The names are attested; the lines between them are scholarship.
+    */
+    deities: [
+      { name: 'Rod', article: 'Rod (Slavic religion)' },
+      { name: 'Svarog', article: 'Svarog' },
+      { name: 'Dazhbog', article: 'Dazhbog', parents: ['Svarog'] },
+      { name: 'Svarozhits', article: 'Svarozhits', parents: ['Svarog'] },
+      { name: 'Zorya', article: 'Zorya', parents: ['Dazhbog'] },
+      { name: 'Perun', article: 'Perun' },
+      { name: 'Mokosh', article: 'Mokosh' },
+      { name: 'Jarilo', article: 'Jarilo', parents: ['Perun', 'Mokosh'] },
+      { name: 'Morana', article: 'Marzanna', parents: ['Perun', 'Mokosh'] },
+      { name: 'Veles', article: 'Veles (god)' },
+      { name: 'Stribog', article: 'Stribog' },
+      { name: 'Khors', article: 'Khors' },
+      { name: 'Simargl', article: 'Simargl' },
+      { name: 'Chernobog', article: 'Chernobog' },
+      { name: 'Belobog', article: 'Belobog' },
+      { name: 'Svetovit', article: 'Svetovit' },
+      { name: 'Triglav', article: 'Triglav (mythology)' },
+      { name: 'Radegast', article: 'Radegast (god)' },
+      { name: 'Lada', article: 'Lada (mythology)' },
+    ],
+  },
+  {
+    id: 'persian',
+    name: 'Persian',
+    article: 'Persian mythology',
+    color: '#c9b6ff',
+    /*
+      Zoroastrian, with the Zurvanite top: Time as the father of the Wise Lord
+      and the Destructive Spirit, as the Sasanian heresy told it — the one
+      account in which Ahura Mazda has a parent. Below him the Amesha Spentas,
+      whom the Gathas call his own children.
+    */
+    deities: [
+      { name: 'Zurvan', article: 'Zurvan' },
+      { name: 'Ahura Mazda', article: 'Ahura Mazda', parents: ['Zurvan'] },
+      { name: 'Angra Mainyu', article: 'Ahriman', parents: ['Zurvan'] },
+      { name: 'Vohu Manah', article: 'Vohu Manah', parents: ['Ahura Mazda'] },
+      { name: 'Asha', article: 'Asha', parents: ['Ahura Mazda'] },
+      { name: 'Khshathra', article: 'Khshathra Vairya', parents: ['Ahura Mazda'] },
+      { name: 'Armaiti', article: 'Armaiti', parents: ['Ahura Mazda'] },
+      { name: 'Haurvatat', article: 'Haurvatat', parents: ['Ahura Mazda'] },
+      { name: 'Ameretat', article: 'Ameretat', parents: ['Ahura Mazda'] },
+      { name: 'Mithra', article: 'Mithra' },
+      { name: 'Anahita', article: 'Anahita' },
+      { name: 'Verethragna', article: 'Verethragna' },
+      { name: 'Tishtrya', article: 'Tishtrya' },
+      { name: 'Atar', article: 'Atar' },
+      { name: 'Sraosha', article: 'Sraosha' },
+      { name: 'Rashnu', article: 'Rashnu' },
+      { name: 'Vayu-Vata', article: 'Vayu-Vata' },
+      { name: 'Zam', article: 'Zam' },
+      { name: 'Daena', article: 'Daena' },
     ],
   },
 ]

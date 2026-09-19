@@ -2,7 +2,7 @@ import type { DistrictId } from '../scene/districts'
 import { ERAS, EVENTS, eraOf, yearLabel, type Era } from './history'
 import { PANTHEONS } from './pantheons'
 import { MEDIA } from './artworks'
-import { SUBJECTS } from './sciences'
+import { BRANCHES, SUBJECTS } from './sciences'
 import { COUNTRIES } from '../scene/worldCountries'
 
 /**
@@ -85,7 +85,13 @@ export const NAV: Record<DistrictId, NavConfig> = {
     groupsSelectable: false,
   },
   science: {
-    groups: [{ name: 'Subjects', color: '#8fd6ff', items: SUBJECTS.map((s, i) => ({ name: s.name, index: i })) }],
+    groups: BRANCHES.map((branch) => ({
+      name: branch.name,
+      color: branch.color,
+      items: SUBJECTS.map((s, i) => ({ s, i }))
+        .filter(({ s }) => s.branch === branch.id)
+        .map(({ s, i }) => ({ name: s.name, index: i })),
+    })),
     groupsSelectable: false,
   },
   art: { groups: artGroups(), groupsSelectable: false },

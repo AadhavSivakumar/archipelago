@@ -2,7 +2,7 @@ import type { DistrictId } from '../scene/districts'
 import { ERAS, EVENTS, eraOf, yearLabel, type Era } from './history'
 import { PANTHEONS } from './pantheons'
 import { MEDIA } from './artworks'
-import { SUBJECTS } from './sciences'
+import { BRANCHES, SUBJECTS } from './sciences'
 
 /**
  * What each district is actually about.
@@ -51,8 +51,7 @@ const eraTopics = (): Topic[] =>
 
 export const CONTENT: Record<DistrictId, DistrictContent> = {
   ideology: {
-    summary:
-      'Eight mythologies, each on an islet of its own, and the family tree of every god in them.',
+    summary: `${PANTHEONS.length} mythologies, each on an islet of its own, and the family tree of every god in them.`,
     topics: PANTHEONS.map((p) => ({ name: p.name, note: `${p.deities.length} figures, from ${p.deities[0].name} down.` })),
     hint: 'Choose an islet to raise its family tree, then any figure in it to read who they were.',
   },
@@ -74,8 +73,13 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
   },
 
   science: {
-    summary: `The realms of science: ${SUBJECTS.length} subjects, each a station along the shore.`,
-    topics: SUBJECTS.map((s) => ({ name: s.name, note: s.blurb })),
+    summary: `The realms of science: ${SUBJECTS.length} subjects in ${BRANCHES.length} branches, each a station along the shore.`,
+    topics: BRANCHES.map((branch) => ({
+      name: branch.name,
+      note: SUBJECTS.filter((s) => s.branch === branch.id)
+        .map((s) => s.name)
+        .join(', '),
+    })),
     hint: 'Choose a station on the beach to read about its subject.',
   },
 

@@ -1,14 +1,5 @@
-import { Suspense, useContext, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import {
-  Bloom,
-  EffectComposer,
-  EffectComposerContext,
-  SMAA,
-  ToneMapping,
-  Vignette,
-} from '@react-three/postprocessing'
-import { BlendFunction, SMAAEffect, SMAAPreset, ToneMappingMode } from 'postprocessing'
 import {
   Environment,
   Lightformer,
@@ -28,6 +19,7 @@ import { Island, Water } from './Island'
 import type { DistrictId } from './districts'
 import type { SubFocus } from './landmarks'
 import { QUALITY_FOR_TIER, uQuality, type QualityTier } from './quality'
+import { telemetry } from './telemetry'
 
 /**
  * Shared by the sky shader and the shadow-casting sun so they agree.
@@ -448,6 +440,7 @@ function QualityGovernor({ flying, onTier }: { flying: boolean; onTier: (tier: Q
     // Exponential average with a ~20-frame memory: quick enough to notice a
     // change, slow enough that one bad frame is not a verdict.
     s.ema += (ms - s.ema) * 0.05
+    telemetry.frameMs = s.ema
 
     if (s.ema > 24) { s.over += ms; s.under = 0 }
     else if (s.ema < 13) { s.under += ms; s.over = 0 }
@@ -464,10 +457,42 @@ function QualityGovernor({ flying, onTier }: { flying: boolean; onTier: (tier: Q
     s.over = 0
     s.under = 0
     uQuality.value = QUALITY_FOR_TIER[next]
+    telemetry.tier = next
     // One line in the console per change, so anyone reporting "it is slow"
     // can say which tier their machine settled at.
     console.info(`[archipelago] quality tier ${next} (frame ${s.ema.toFixed(1)}ms)`)
     onTier(next)
+  })
+
+  return null
+}
+
+/**
+ * Copies the renderer's own counters into the telemetry store, once a frame.
+ *
+ * Read in useFrame, which runs BEFORE the frame is rendered: the renderer's
+ * info is reset at the start of each render, so at this point it still holds
+ * the totals of the frame that has just been shown — which is the one worth
+ * reporting. The GPU name is read once, through the extension that unmasks it.
+ */
+function Telemetry() {
+  const gl = useThree((s) => s.gl)
+  const size = useThree((s) => s.size)
+
+  useEffect(() => {
+    const ctx = gl.getContext()
+    const ext = ctx.getExtension('WEBGL_debug_renderer_info')
+    telemetry.renderer = ext
+      ? String(ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL))
+      : String(ctx.getParameter(ctx.RENDERER))
+  }, [gl])
+
+  useFrame(() => {
+    telemetry.triangles = gl.info.render.triangles
+    telemetry.drawCalls = gl.info.render.calls
+    telemetry.dpr = gl.getPixelRatio()
+    telemetry.width = Math.round(size.width * telemetry.dpr)
+    telemetry.height = Math.round(size.height * telemetry.dpr)
   })
 
   return null
@@ -509,87 +534,6 @@ function FixedDpr() {
   invisible to it. Everything inside is static, so there is nothing to close
   over and no reason for it ever to be rebuilt.
 */
-/**
- * Switches the antialiasing pass off at the lowest quality tier.
- *
- * SMAA is three full-screen passes — edge detection, blend-weight calculation,
- * and the blend itself — on every frame. On an integrated GPU that is commonly
- * the single largest fill cost in a chain like this one, larger than the scene.
- * The quality governor cannot reach it through props: GRADING is a constant
- * element precisely so that nothing ever re-renders it. So this sits INSIDE the
- * composer, takes the composer from the context the wrapper already provides,
- * and reads the same shared dial the shaders do.
- *
- * `pass.enabled = false` is the whole mechanism. EffectComposer.render skips a
- * disabled pass and copies through if it was the last one; nothing is disposed
- * and nothing is allocated, which is the rule every governor switch obeys. The
- * pass is found by the type of effect it carries rather than by index, because
- * the wrapper decides how effects are grouped into passes and that grouping is
- * not part of its contract.
- *
- * Aliasing on a machine that cannot hold a frame is the right trade: a jagged
- * edge is a still image's flaw, and the frame it buys back is motion's.
- */
-function PassGovernor() {
-  const { composer } = useContext(EffectComposerContext)
-  const smaa = useRef<{ enabled: boolean } | null>(null)
-
-  useEffect(() => {
-    if (!composer) return
-    type PassLike = { enabled: boolean; effects?: unknown[] }
-    const found = (composer.passes as PassLike[]).find(
-      (pass) => Array.isArray(pass.effects) && pass.effects.some((e) => e instanceof SMAAEffect),
-    )
-    smaa.current = found ?? null
-    return () => {
-      // Never leave a pass disabled if this unmounts mid-tier.
-      if (found) found.enabled = true
-    }
-  }, [composer])
-
-  useFrame(() => {
-    const pass = smaa.current
-    if (!pass) return
-    const want = uQuality.value > 0
-    if (pass.enabled !== want) pass.enabled = want
-  })
-
-  return null
-}
-
-const GRADING = (
-  <EffectComposer multisampling={0} enableNormalPass={false}>
-    <PassGovernor />
-    <Bloom intensity={0.42} luminanceThreshold={0.82} luminanceSmoothing={0.28} mipmapBlur />
-    <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-    <Vignette offset={0.32} darkness={0.42} blendFunction={BlendFunction.NORMAL} />
-    {/*
-      ULTRA rather than the MEDIUM default.
-
-      SMAA is the only antialiasing this scene has: EffectComposer renders into
-      a framebuffer, which disables the Canvas's MSAA outright. The preset sets
-      how far the edge-detection search runs, and the difference shows exactly
-      where it is being asked to work hardest — a coastline is thousands of
-      short, near-diagonal segments, which is the case MEDIUM gives up on
-      soonest and the case the world map is made of. It is a post-process on a
-      full-screen quad, so the cost is a handful of extra texture fetches per
-      pixel and nothing at all in the scene.
-    */}
-    {/*
-      MEDIUM, down from ULTRA.
-
-      The preset controls how far the edge search runs per pixel, and it is a
-      full-screen cost on every frame. ULTRA was chosen for the world map's
-      coastlines, which are thousands of short near-diagonal segments — the
-      hardest case there is. But the map is now read from ten units with the
-      whole world stripped behind it, which is the cheapest frame this scene
-      ever draws and the one place that could afford it least badly. Everywhere
-      else it was buying a difference nobody asked about, on the frames that
-      were already the most expensive.
-    */}
-    <SMAA preset={SMAAPreset.MEDIUM} />
-  </EffectComposer>
-)
 
 /**
  * Watches how close the camera has come to what it is looking at, and says when
@@ -815,26 +759,20 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
         by side at 2x the unprocessed map is visibly sharper.
       */}
       {/*
-        Always mounted, in every view, and that is the fix for the black flash
-        and the stutter rather than a preference.
+        No post-processing. Not disabled — gone.
 
-        This used to be dropped while the map was the subject, which meant that
-        the frame the camera crossed the level-of-detail threshold — mid-flight,
-        on the way in — did three expensive things at once. The composer
-        unmounted, disposing every render target it owned. `gl.toneMapping`
-        changed, which marks EVERY material in the scene for recompilation.
-        And the pixel ratio was pinned, reallocating the drawing buffer. A
-        teardown and two reallocations, all on one frame, in the middle of a
-        camera move: that is a black flash followed by a stall, arriving exactly
-        when the visitor clicks into the Garden.
-
-        None of the three is worth what it cost. The composer's own passes are
-        the same in both views; the tone curve should never move at all; and
-        adapting resolution mid-session buys smoothness by way of a black frame,
-        which is a poor trade. So nothing is switched now, and the only price is
-        that the map antialiases through SMAA rather than the Canvas's MSAA.
+        The chain that used to sit here (bloom, ACES, vignette, SMAA) was the
+        only component this scene ever produced a reproducible black frame
+        with, the largest fill cost on an integrated GPU, and the most
+        platform-sensitive thing in the tree — half-float render targets
+        misbehave on Safari and on mobile. Every switch built to manage it was
+        managing a risk that only exists because it exists. The image without it
+        is sharper: the Canvas's own MSAA resolves edges exactly, where SMAA was
+        a post-process guess at them, and tone mapping runs on the renderer as
+        three intends. What is lost is the bloom on the accents and a vignette.
+        Against a black flash that has survived every other fix, that is not a
+        hard trade.
       */}
-      {GRADING}
 
       <MapDetail
         active={focus === 'geography'}
@@ -847,6 +785,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld, onCountry }: Pr
       <Haze close={mapDetail} scale={scale} onSettled={setStripped} />
       <QualityGovernor flying={flying} onTier={setTier} />
       <FixedDpr />
+      <Telemetry />
       <IdleOrbit active={idle && focus === null && !flying} />
       <CameraRig focus={focus} subFocus={subFocus} onFlyingChange={setFlying} />
       <OrbitControls

@@ -489,6 +489,45 @@ canvas {
 }
 
 /*
+  The ?debug readout. Top-right, monospace, above everything, and inert to the
+  pointer so it can never be the thing that swallowed a click.
+*/
+.debug {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: grid;
+  gap: 3px;
+  max-width: min(520px, 60vw);
+  padding: 10px 12px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #dce6f2;
+  pointer-events: none;
+  background: rgba(6, 10, 18, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+}
+
+.debug__row {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+
+.debug__row--wide {
+  white-space: normal;
+  word-break: break-all;
+  color: #9fb3c8;
+}
+
+.debug__row--alert {
+  color: #ffb4a2;
+  font-weight: 600;
+}
+
+/*
   The way back, while the panel is off-screen.
 
   Sits where the panel's own controls were, so the exit does not move when the

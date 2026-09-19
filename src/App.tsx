@@ -1,7 +1,9 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CountryCard } from './components/CountryCard'
+import { DebugOverlay } from './components/DebugOverlay'
 import { DistrictDossier } from './components/DistrictDossier'
+import { telemetry } from './scene/telemetry'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useHashFocus } from './hooks/useHashFocus'
 import { Scene } from './scene/Scene'
@@ -178,6 +180,8 @@ export function App() {
         </button>
       )}
 
+      <DebugOverlay />
+
       {/*
         The camera flight is the only feedback a sighted user gets on focus.
         This is that same event, spoken. The copy already exists in districts.ts.
@@ -234,7 +238,28 @@ export function App() {
           */}
           <Canvas
             shadows="percentage"
-            onCreated={({ setDpr }) => setDpr(Math.min(window.devicePixelRatio, 2))}
+            onCreated={({ gl, setDpr }) => {
+              setDpr(Math.min(window.devicePixelRatio, 2))
+              /*
+                Count context losses. three already listens for this event and
+                calls preventDefault so the browser attempts a restore; these
+                listeners only record that it happened. A lost context is a
+                black canvas until restored, and on some drivers it happens
+                under load — it is the one cause of a black flash this code
+                cannot prevent, only make less likely by drawing less. Knowing
+                whether it is happening is what decides which of those to do.
+              */
+              const canvas = gl.domElement
+              canvas.addEventListener('webglcontextlost', () => {
+                telemetry.contextLosses += 1
+                telemetry.lastLossAt = performance.now()
+                console.warn('[archipelago] WebGL context lost')
+              })
+              canvas.addEventListener('webglcontextrestored', () => {
+                telemetry.contextRestores += 1
+                console.info('[archipelago] WebGL context restored')
+              })
+            }}
             camera={{ position: [0, 115, 180], fov: 42, near: 0.5, far: 800 }}
             /*
               preserveDrawingBuffer, and it is a workaround rather than a

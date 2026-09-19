@@ -1,9 +1,15 @@
 import type { DistrictId } from '../scene/districts'
-import { ERAS, EVENTS, eraOf, yearLabel, type Era } from './history'
+import { ERAS, EVENTS, eraOf, yearLabel, type Era, type HistoricEvent } from './history'
 import { PANTHEONS } from './pantheons'
 import { MEDIA } from './artworks'
 import { BRANCHES, SUBJECTS } from './sciences'
 import { COUNTRIES } from '../scene/worldCountries'
+import { SOCIETY } from './society'
+import { FAMILIES } from './languages'
+import { LIFE } from './life'
+import { COSMOS } from './cosmos'
+import { INVENTIONS } from './inventions'
+import type { Figure } from '../scene/familyTree'
 
 /**
  * What is chosen within a district, as the page and the scene both see it.
@@ -42,6 +48,27 @@ export type NavConfig = {
 */
 const ERA_IDS = Object.keys(ERAS) as Era[]
 
+/** Events by era, in the events' own indices. */
+function eraGroups(events: readonly HistoricEvent[]): NavGroup[] {
+  return ERA_IDS.map((era) => ({
+    name: ERAS[era].name,
+    color: ERAS[era].color,
+    items: events
+      .map((ev, i) => ({ ev, i }))
+      .filter(({ ev }) => eraOf(ev.year) === era)
+      .map(({ ev, i }) => ({ name: ev.label, note: yearLabel(ev.year), index: i })),
+  })).filter((group) => group.items.length > 0)
+}
+
+/** Trees, one group each; a figure's note names what it comes from. */
+function treeGroups(groups: readonly { name: string; color: string; figures: readonly Figure[] }[], from: string): NavGroup[] {
+  return groups.map((g) => ({
+    name: g.name,
+    color: g.color,
+    items: g.figures.map((f, i) => ({ name: f.name, note: f.parents?.length ? `${from} ${f.parents.join(' & ')}` : undefined, index: i })),
+  }))
+}
+
 function artGroups(): NavGroup[] {
   let offset = 0
   return MEDIA.map((medium) => {
@@ -52,14 +79,16 @@ function artGroups(): NavGroup[] {
 }
 
 export const NAV: Record<DistrictId, NavConfig> = {
-  history: {
-    groups: ERA_IDS.map((era) => ({
-      name: ERAS[era].name,
-      color: ERAS[era].color,
-      items: EVENTS.map((ev, i) => ({ ev, i }))
-        .filter(({ ev }) => eraOf(ev.year) === era)
-        .map(({ ev, i }) => ({ name: ev.label, note: yearLabel(ev.year), index: i })),
-    })).filter((group) => group.items.length > 0),
+  history: { groups: eraGroups(EVENTS), groupsSelectable: false },
+  inventions: { groups: eraGroups(INVENTIONS), groupsSelectable: false },
+  languages: { groups: treeGroups(FAMILIES, 'from'), groupsSelectable: true },
+  life: { groups: treeGroups(LIFE, 'within'), groupsSelectable: true },
+  cosmos: {
+    groups: COSMOS.map((g) => ({
+      name: g.name,
+      color: g.color,
+      items: g.items.map((it, i) => ({ name: it.name, note: it.note, index: i })),
+    })),
     groupsSelectable: false,
   },
   ideology: {
@@ -95,7 +124,17 @@ export const NAV: Record<DistrictId, NavConfig> = {
     groupsSelectable: false,
   },
   art: { groups: artGroups(), groupsSelectable: false },
-  anthropology: { groups: [], groupsSelectable: false },
+  anthropology: {
+    groups: (() => {
+      let offset = 0
+      return SOCIETY.map((trail) => {
+        const items = trail.items.map((it, i) => ({ name: it.name, index: offset + i }))
+        offset += trail.items.length
+        return { name: trail.name, color: trail.color, items }
+      })
+    })(),
+    groupsSelectable: false,
+  },
 }
 
 /** The group an item belongs to, for a district reporting a click in the scene. */

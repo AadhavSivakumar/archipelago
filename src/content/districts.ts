@@ -3,6 +3,11 @@ import { ERAS, EVENTS, eraOf, yearLabel, type Era } from './history'
 import { PANTHEONS } from './pantheons'
 import { MEDIA } from './artworks'
 import { BRANCHES, SUBJECTS } from './sciences'
+import { SOCIETY } from './society'
+import { FAMILIES } from './languages'
+import { LIFE } from './life'
+import { COSMOS } from './cosmos'
+import { INVENTIONS } from './inventions'
 
 /**
  * What each district is actually about.
@@ -38,9 +43,9 @@ export type DistrictContent = {
   the panel can never list a subject the island does not have. The eras carry
   the years their events span; the pantheons and media carry their counts.
 */
-const eraTopics = (): Topic[] =>
+const eraTopics = (events: readonly { year: number }[]): Topic[] =>
   (Object.keys(ERAS) as Era[]).map((id) => {
-    const years = EVENTS.filter((ev) => eraOf(ev.year) === id).map((ev) => ev.year)
+    const years = events.filter((ev) => eraOf(ev.year) === id).map((ev) => ev.year)
     const first = Math.min(...years)
     const last = Math.max(...years)
     return {
@@ -58,7 +63,7 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
 
   history: {
     summary: `A timeline of ${EVENTS.length} turning points in the human story, winding in from the first farms to the present day.`,
-    topics: eraTopics(),
+    topics: eraTopics(EVENTS),
     hint: 'Choose a stone to read what happened. The arrow keys walk the years.',
   },
 
@@ -90,14 +95,32 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
   },
 
   anthropology: {
-    summary: 'The peaks of human society — how people organise themselves, and how they live.',
-    topics: [
-      { name: 'Culture', note: 'What a people shares.' },
-      { name: 'Politics', note: 'How it decides.' },
-      { name: 'Business', note: 'How it trades.' },
-      { name: 'Law', note: 'How it binds itself.' },
-      { name: 'Wellness', note: 'How it keeps.' },
-      { name: 'Cuisine', note: 'How it eats.' },
-    ],
+    summary: `The peaks of human society: ${SOCIETY.reduce((n, t) => n + t.items.length, 0)} waymarks on six trails, one for each way people live together.`,
+    topics: SOCIETY.map((t) => ({ name: t.name, note: `${t.note} ${t.items.length} signs.` })),
+    hint: 'Choose a signpost on any trail to read about it.',
+  },
+
+  languages: {
+    summary: `${FAMILIES.length} language families, each a stone on the rim of the lagoon, each a family tree over the water.`,
+    topics: FAMILIES.map((f) => ({ name: f.name, note: `${f.figures.length} tongues, from ${f.figures[0].name} down.` })),
+    hint: 'Choose a stone to raise its family tree over the lagoon, then any tongue in it to read about it.',
+  },
+
+  life: {
+    summary: `The tree of life in ${LIFE.length} trees, from the domains down to the species at the tips.`,
+    topics: LIFE.map((g) => ({ name: g.name, note: `${g.figures.length} kinds, from ${g.figures[0].name} down.` })),
+    hint: 'Choose a carved pole to raise its tree, then any kind of living thing in it.',
+  },
+
+  cosmos: {
+    summary: 'The solar system on an orrery, and three rings around it: the moons, the probes, and the constellations.',
+    topics: COSMOS.map((g) => ({ name: g.name, note: `${g.items.length} on the ${g.id === 'planets' ? 'orrery' : 'ring'}.` })),
+    hint: 'Choose a planet on the orrery, or any marker on the rings around it.',
+  },
+
+  inventions: {
+    summary: `${INVENTIONS.length} things people made, on a second spiral: from the hand axe to the transformer.`,
+    topics: eraTopics(INVENTIONS),
+    hint: 'Choose a stone to read about what was made. The arrow keys walk the years.',
   },
 }

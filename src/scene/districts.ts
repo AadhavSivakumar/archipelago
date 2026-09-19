@@ -5,6 +5,10 @@ export type DistrictId =
   | 'science'
   | 'art'
   | 'anthropology'
+  | 'languages'
+  | 'life'
+  | 'cosmos'
+  | 'inventions'
 
 export type District = {
   id: DistrictId
@@ -182,6 +186,73 @@ export const DISTRICTS: District[] = [
       { dx: 0.5, dz: -9, h: 12, r: 6 },
       { dx: -3, dz: 4.5, h: 4.5, r: 4 },
     ],
+  },
+  /*
+    The four that came later, placed where the first six left room.
+
+    The foreground had to stay open — anything in front of the centre island
+    hides the globe from the home camera — so the Lagoon and the Cay sit far
+    out on either flank, past the edge of the home frame, and the Bayou and
+    the Inlet take the mainland shore to either side of the Alps — the coast
+    already bends inland at both, and the Inlet's bend is deepened a little
+    into an inlet. The idle orbit brings the flank islands into view; the bar
+    along the top reaches all of them.
+  */
+  {
+    id: 'languages',
+    name: 'Linguistic Lagoon',
+    blurb:
+      "Follow the family trees of the world's languages, from the reconstructed proto-tongues down to the ones spoken today.",
+    color: '#4f9a92',
+    accent: '#8fe3d9',
+    x: -70,
+    z: 62,
+    seaward: 1.9,
+    pad: 4.0,
+    padRadius: 5.5,
+    relief: 1.4,
+    // Carved below the waterline: the lagoon itself, inside the atoll's rim.
+    bumps: [{ dx: 0, dz: 0, h: -8, r: 4.5 }],
+  },
+  {
+    id: 'life',
+    name: 'Biological Bayou',
+    blurb: 'Wade through the tree of life, from the first cells to every kingdom of living things.',
+    color: '#5c8f4a',
+    accent: '#a6e37a',
+    x: -66,
+    z: -81,
+    seaward: 1.57,
+    pad: 2.2,
+    padRadius: 7,
+    relief: 1.2,
+  },
+  {
+    id: 'cosmos',
+    name: 'Celestial Cay',
+    blurb: 'Look up: the planets on an orrery, their moons, the probes we sent, and the constellations we drew.',
+    color: '#5a6fa8',
+    accent: '#b4c6ff',
+    x: 70,
+    z: 62,
+    seaward: 1.25,
+    pad: 4.5,
+    padRadius: 5,
+    relief: 1.5,
+  },
+  {
+    id: 'inventions',
+    name: "Inventors' Inlet",
+    blurb:
+      'A second timeline, of the things people made: from the hand axe and the plough to the transistor and the web.',
+    color: '#a8783f',
+    accent: '#f2c27a',
+    x: 94,
+    z: -88,
+    seaward: 1.57,
+    pad: 2.4,
+    padRadius: 10,
+    relief: 1.4,
   },
 ]
 

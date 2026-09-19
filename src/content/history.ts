@@ -42,8 +42,9 @@ export function eraOf(year: number): Era {
   return era
 }
 
-/** "3300 BCE", "476", "1969". */
+/** "3300 BCE", "476", "1969" — and "1.7 million years ago" for the deep past. */
 export function yearLabel(year: number) {
+  if (year <= -100000) return `${(-year / 1e6).toFixed(1).replace(/\.0$/, '')} million years ago`
   return year < 0 ? `${-year} BCE` : String(year)
 }
 

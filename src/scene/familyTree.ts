@@ -1,6 +1,7 @@
-import type { Deity, Pantheon } from '../content/pantheons'
+/** Anyone with a name, an article, and possibly parents among the others. */
+export type Figure = { name: string; article: string; parents?: readonly string[] }
 
-export type TreeNode = { deity: Deity; gen: number; x: number; y: number }
+export type TreeNode = { figure: Figure; gen: number; x: number; y: number }
 export type TreeLayout = {
   nodes: TreeNode[]
   /** Pairs of node indices: parent, child. */
@@ -14,8 +15,8 @@ export const TREE_DX = 0.95
 export const TREE_DY = 1.0
 
 /**
- * Lays a pantheon out as a family tree: one row per generation, the
- * primordials at the top.
+ * Lays a set of figures out as a family tree: one row per generation, the
+ * primordials — or the proto-languages, or the domains of life — at the top.
  *
  * A figure's generation is one below its parents'. A figure with no parents
  * but with children — a consort who married into the line, like Leto or
@@ -29,11 +30,11 @@ export const TREE_DY = 1.0
  * beside their partner. Nothing here is a general graph-drawing algorithm,
  * and it does not need to be: the largest of these has thirty-four figures.
  */
-export function layoutTree(p: Pantheon): TreeLayout {
-  const n = p.deities.length
-  const index = new Map(p.deities.map((d, i) => [d.name, i]))
+export function layoutTree(figures: readonly Figure[]): TreeLayout {
+  const n = figures.length
+  const index = new Map(figures.map((d, i) => [d.name, i]))
   const parentsOf = (i: number) =>
-    (p.deities[i].parents ?? []).map((name) => index.get(name)).filter((j): j is number => j !== undefined)
+    (figures[i].parents ?? []).map((name) => index.get(name)).filter((j): j is number => j !== undefined)
 
   // Generation, by the longest line of descent from a primordial.
   const gen = new Array<number>(n).fill(-1)
@@ -92,8 +93,8 @@ export function layoutTree(p: Pantheon): TreeLayout {
     place(members)
   }
 
-  const nodes: TreeNode[] = p.deities.map((deity, i) => ({
-    deity,
+  const nodes: TreeNode[] = figures.map((figure, i) => ({
+    figure,
     gen: gen[i],
     x: x[i],
     y: (rows - 1 - gen[i]) * TREE_DY,

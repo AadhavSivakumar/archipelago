@@ -200,7 +200,7 @@ const CENTRES = DISTRICTS.map((d) => {
  * coast. Both would be given a redundant — and, at Scientific Shores' position,
  * actively wrong — circular island if they were left in the table.
  */
-const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science'])
+const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science', 'life', 'inventions'])
 
 /**
  * Every island in the archipelago, as centre and nominal radius.
@@ -273,8 +273,6 @@ const ISLES: { x: number; z: number; radius: number; seed: number; crest: number
   { x: 74, z: 2, radius: 7.0, seed: 228, crest: ISLE_CREST(7.0) },
   { x: 10, z: -40, radius: 5.0, seed: 235, crest: ISLE_CREST(5.0) },
   { x: -26, z: -42, radius: 5.5, seed: 242, crest: ISLE_CREST(5.5) },
-  { x: 76, z: 48, radius: 4.0, seed: 249, crest: ISLE_CREST(4.0) },
-  { x: -78, z: 48, radius: 5.0, seed: 256, crest: ISLE_CREST(5.0) },
 ]
 
 /** Where the mainland's coast runs, before its wobble. Land lies further -Z. */
@@ -319,7 +317,11 @@ const signedFbm = (x: number, y: number, octaves: number) =>
 function coastZ(x: number) {
   // Sampled along a slowly varying 2-D path rather than a constant second
   // argument, so the coastline meanders instead of being a 1-D function of x.
-  return MAINLAND_Z + MAINLAND_WOBBLE * signedFbm(x * 0.018 + 91, x * 0.011 - 4, 4)
+  const wobble = MAINLAND_WOBBLE * signedFbm(x * 0.018 + 91, x * 0.011 - 4, 4)
+  // The Inventors' Inlet: the coast's own bend there, deepened into an inlet,
+  // so the district's plateau sits at its head with water on three sides.
+  const inlet = 6 * Math.exp(-(((x - 94) / 14) ** 2))
+  return MAINLAND_Z - inlet + wobble
 }
 
 /**

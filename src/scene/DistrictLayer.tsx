@@ -48,6 +48,10 @@ const LABEL_HEIGHT: Record<DistrictId, number> = {
   science: 13,
   art: 11,
   anthropology: 14,
+  languages: 12,
+  life: 12,
+  cosmos: 14,
+  inventions: 12,
 }
 
 export function Districts({

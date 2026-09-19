@@ -761,12 +761,44 @@ canvas {
   color: var(--ink-dim);
 }
 
+/*
+  Ten territories no longer fit one row below about 1640px, so the chips
+  wrap, and the bar's height variable follows — everything that keeps clear
+  of the bar reads it. On a phone the row scrolls instead, below.
+*/
+@media (max-width: 1640px) {
+  :root {
+    --top-h: 96px;
+  }
+
+  .topbar__list {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 6px 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --top-h: 132px;
+  }
+
+  .topbar__brand p {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   /*
     The bar keeps its shape on a phone — a row of chips scrolls — but loses
     the tagline and the overview button, which Escape and the active chip
-    cover, so the six territories get the width.
+    cover, so the ten territories get the width.
   */
+  .topbar__list {
+    flex-wrap: nowrap;
+    padding: 0;
+  }
+
   :root {
     --top-h: 52px;
   }

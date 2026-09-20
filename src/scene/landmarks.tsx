@@ -23,9 +23,9 @@ import {
 import { setCursor } from './cursor'
 import { countryArticle } from '../components/wikipedia'
 import { ExhibitHall, Exhibits, InstancedLabels, makeLabelAtlas, type Exhibit, type LabelAtlas, type LabelPlacement } from './exhibits'
-import { PANTHEONS } from '../content/pantheons'
+import { IDEOLOGIES } from '../content/ideologies'
 import { layoutTree } from './familyTree'
-import { Tree, treeFigures } from './trees'
+import { Tree, treeExtent, useTreePick } from './trees'
 import { EVENTS } from '../content/history'
 import { layoutTimeline, Timeline } from './timeline'
 import { MEDIA } from '../content/artworks'
@@ -35,6 +35,7 @@ import { LinguisticLagoon } from './lagoon'
 import { BiologicalBayou } from './bayou'
 import { CelestialCay } from './cay'
 import { InventorsInlet } from './inlet'
+import { MythologicalMonument } from './mythos'
 import { groupOf } from '../content/navigation'
 import { publishView, select, useDistrictSelection } from '../state/selection'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -53,12 +54,11 @@ import {
   std,
   type LandmarkProps,
 } from './landmarkKit'
-import type { SubFocus } from './exhibits'
 export type { LandmarkProps } from './landmarkKit'
 export type { SubFocus } from './exhibits'
 
 // ===========================================================================
-// Ideology Isles — a rotunda, ringed by eight pantheons on floating islets
+// Ideology Isles — a rotunda, ringed by schools of thought on floating islets
 // ===========================================================================
 
 const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 160)
@@ -166,14 +166,15 @@ const COLONNADE = Array.from({ length: 14 }, (_, i) => {
 })
 
 /*
-  Eight islets, one per pantheon, orbiting the rotunda.
+  Islets, one per school of thought, orbiting the rotunda.
 
-  Each islet carries a totem in its pantheon's colour, and choosing one raises
-  that pantheon's family tree in the air above it: a row per generation, the
-  primordials at the top, each figure an orb with its name under it and a
-  line to each parent. The tree is laid out by familyTree.ts and hangs in the
-  plane that faces the district's seaward bearing, which is the bearing the
-  camera approaches along, so it is read as a chart rather than seen edge-on.
+  Each islet carries a totem in its school's colour, and choosing one raises
+  that school's family tree of ideas in the air above it: a row per
+  generation, the oldest ideas at the top, each an orb with its name under
+  it and a line to what it grew out of. The tree is laid out by familyTree.ts
+  and hangs in the plane that faces the district's seaward bearing, which is
+  the bearing the camera approaches along, so it is read as a chart rather
+  than seen edge-on.
 
   The orbit holds still while the district is focused. It has to: the camera
   flies to where an islet was when it was chosen, and an islet that kept
@@ -185,34 +186,30 @@ const COLONNADE = Array.from({ length: 14 }, (_, i) => {
 */
 const ORBIT_Y = 7
 /**
- * Two rings, turning opposite ways.
- *
- * Fourteen islets on one circle would sit four units apart, and the widest
- * tree is over ten across. Two circles of seven, one inside the other, give
- * every islet room for its tree; turning them against each other keeps the
- * whole thing reading as an orrery rather than a carousel.
+ * The islets' rings. One ring while they are few enough to sit apart on it;
+ * two, turning against each other, once they are not — the pantheons that
+ * used to live here needed the second, and may again.
  */
 const RINGS = [
   { r: 10.6, speed: 0.09, phase: 0 },
   { r: 15.2, speed: -0.055, phase: Math.PI / 7 },
 ] as const
-const RING_SIZE = Math.ceil(PANTHEONS.length / RINGS.length)
-const ringOf = (pantheon: number) => Math.min(RINGS.length - 1, Math.floor(pantheon / RING_SIZE))
+const RING_SIZE = IDEOLOGIES.length <= 8 ? IDEOLOGIES.length : Math.ceil(IDEOLOGIES.length / RINGS.length)
+const ringOf = (i: number) => Math.min(RINGS.length - 1, Math.floor(i / RING_SIZE))
 /** How far above an islet's turf its tree's lowest row hangs. */
 const TREE_LIFT = 2.2
-const TREES = PANTHEONS.map((p) => layoutTree(p.deities))
+const TREES = IDEOLOGIES.map((g) => layoutTree(g.figures))
 
 /** The islets of each ring, in that ring's own orbiting frame. */
 const ISLET_RINGS: Exhibit[][] = RINGS.map((ring, k) =>
-  PANTHEONS.map((p, i) => ({ p, i }))
+  IDEOLOGIES.map((g, i) => ({ g, i }))
     .filter(({ i }) => ringOf(i) === k)
-    .map(({ p, i }, j, members) => {
+    .map(({ g, i }, j, members) => {
       const a = ring.phase + (j / members.length) * Math.PI * 2
-      const tree = TREES[i]
       return {
-        name: p.name,
-        article: p.article,
-        kicker: `Pantheon · ${p.deities.length} figures`,
+        name: g.name,
+        article: g.article,
+        kicker: `School of thought · ${g.figures.length} ideas`,
         x: Math.cos(a) * ring.r,
         y: Math.sin(a * 1.7 + k) * 1.0,
         z: Math.sin(a) * ring.r,
@@ -220,14 +217,13 @@ const ISLET_RINGS: Exhibit[][] = RINGS.map((ring, k) =>
         // repeated round a circle, which is exactly how it reads when they
         // share a rotation and the orbit spins them past the camera.
         yaw: i * 1.27,
-        color: p.color,
+        color: g.color,
         // Frame the whole tree, not the islet.
-        extent: Math.max(tree.halfWidth, tree.height / 2) + 0.7,
+        extent: treeExtent(TREES[i]),
         elevation: 0.26,
       }
     }),
 )
-
 
 export function IdeologyIsles({ d, focused }: LandmarkProps) {
   const orbits = useRef<(THREE.Group | null)[]>([])
@@ -239,10 +235,6 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
     })
   })
 
-  const selection = useDistrictSelection(d.id)
-  const pantheon = selection?.group ?? -1
-  const deity = selection?.item ?? -1
-
   /** An islet's authored position, carried round by its ring. */
   const islet = useCallback((it: Exhibit, ring: number): [number, number, number] => {
     const a = orbits.current[ring]?.rotation.y ?? 0
@@ -251,76 +243,30 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
     return [it.x * c + it.z * s, ORBIT_Y + it.y, -it.x * s + it.z * c]
   }, [])
 
-  /** The camera frames the tree over the islet, not the islet. */
-  const treeCentre = useCallback(
-    (it: Exhibit, ring: number, pantheonIndex: number): [number, number, number] => {
-      const [x, y, z] = islet(it, ring)
-      return [x, y + TREE_LIFT + TREES[pantheonIndex].height / 2, z]
+  /*
+    Where a tree hangs: over its islet, read from the ring's current turn.
+    Safe to read during a render because the rings only turn while the
+    district is unfocused, and nothing can be chosen then.
+  */
+  const anchorOf = useCallback(
+    (g: number): [number, number, number] => {
+      const ring = ringOf(g)
+      const [x, y, z] = islet(ISLET_RINGS[ring][g % RING_SIZE], ring)
+      return [x, y + TREE_LIFT, z]
     },
     [islet],
   )
-
-  const pickPantheon = useCallback(
-    (i: number) => select(i < 0 ? null : { district: d.id, group: i, item: -1 }),
-    [d.id],
-  )
-  const pickDeity = useCallback(
-    (i: number) => select({ district: d.id, group: pantheon, item: i }),
-    [d.id, pantheon],
-  )
-  /*
-    Where the chosen islet is, in district space. Read from the orbit's
-    current rotation, which is safe because the orbit only turns while the
-    district is unfocused, and nothing can be chosen then.
-  */
-  const anchor = useMemo(
-    () => (pantheon >= 0 ? islet(ISLET_RINGS[ringOf(pantheon)][pantheon % RING_SIZE], ringOf(pantheon)) : null),
-    [pantheon, islet],
-  )
-
-  // The arrow keys walk the pantheons while none has a god chosen under it;
-  // the trees' own collections take them over once one does.
-  useEffect(() => {
-    if (!focused || deity >= 0) return
-    const n = PANTHEONS.length
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') pickPantheon(pantheon < 0 ? 0 : (pantheon + 1) % n)
-      else if (e.key === 'ArrowLeft') pickPantheon(pantheon < 0 ? n - 1 : (pantheon - 1 + n) % n)
-      else return
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [focused, deity, pantheon, pickPantheon])
-
-  const tree = pantheon >= 0 ? TREES[pantheon] : null
   // Left to right as seen from the seaward bearing: the camera's right vector.
   const axis = useMemo(() => ({ x: Math.sin(d.seaward), z: -Math.cos(d.seaward) }), [d])
-  const figures = useMemo<Exhibit[]>(
-    () =>
-      tree && anchor
-        ? treeFigures(tree, PANTHEONS[pantheon], [anchor[0], anchor[1] + TREE_LIFT, anchor[2]], axis, (f) =>
-            f.parents?.length ? `${PANTHEONS[pantheon].name} · child of ${f.parents.join(' and ')}` : `${PANTHEONS[pantheon].name} pantheon`,
-          )
-        : [],
-    [tree, anchor, pantheon, axis],
+  const kicker = useCallback(
+    (g: number, f: { parents?: readonly string[] }) =>
+      f.parents?.length ? `${IDEOLOGIES[g].name} · from ${f.parents.join(' and ')}` : `${IDEOLOGIES[g].name} thought`,
+    [],
   )
-
-  /*
-    What the page describes: the god if one is chosen, else the pantheon.
-    Choosing a god narrows the subject; un-choosing it widens back to the
-    pantheon rather than to nothing, because the tree is still up.
-  */
-  const pantheonView = useRef<SubFocus | null>(null)
-  // A god let go of with its pantheon still chosen: back to the pantheon. The
-  // islets publish their own view when the pantheon changes; this covers the
-  // step down, which changes nothing they watch.
-  useLayoutEffect(() => {
-    if (pantheon >= 0 && deity < 0 && pantheonView.current) publishView(pantheonView.current)
-  }, [pantheon, deity])
+  const pick = useTreePick(d, focused, IDEOLOGIES, TREES, anchorOf, axis, kicker)
 
   return (
-    <ExhibitHall focused={focused} onClear={() => pickPantheon(-1)}>
+    <ExhibitHall focused={focused} onClear={() => pick.pickGroup(-1)}>
       <mesh geometry={STEP} scale={[7.4, 1, 7.4]} position={[0, 0.22, 0]} material={mat.stone} />
       <mesh geometry={STEP} scale={[6.7, 1, 6.7]} position={[0, 0.66, 0]} material={mat.stone} />
       <mesh geometry={STEP} scale={[6.1, 1, 6.1]} position={[0, 1.1, 0]} material={mat.marble} />
@@ -339,52 +285,56 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
       <mesh geometry={SPIRE} position={[0, 13.5, 0]} material={mat.gold} />
 
       {/* noShadow: still rotating after the shadow map freezes. */}
-      {ISLET_RINGS.map((islets, ring) => (
-        <group
-          key={ring}
-          ref={(el) => {
-            orbits.current[ring] = el
-          }}
-          position={[0, ORBIT_Y, 0]}
-          rotation={[0, RINGS[ring].phase, 0]}
-          userData={{ noShadow: true }}
-        >
-          <Exhibits
-            d={d}
-            focused={focused}
-            items={islets}
-            geometry={TOTEM}
-            material={TOTEM_MAT}
-            lift={1.6}
-            parts={[
-              { geometry: ISLET_ROCK, material: mat.darkStone },
-              { geometry: ISLET_TURF, material: mat.leafWarm, lift: 0.16 },
-            ]}
-            // Under the islet: the tree takes the air above it.
-            labelHeight={-2.6}
-            marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.3 }}
-            keys={false}
-            picked={ringOf(pantheon) === ring && pantheon >= 0 ? pantheon % RING_SIZE : -1}
-            onPick={(i) => pickPantheon(i < 0 ? -1 : ring * RING_SIZE + i)}
-            onSubFocus={(view) => {
-              pantheonView.current = view
-              if (deity < 0) publishView(view)
-            }}
-            place={(it, i) => treeCentre(it, ring, ring * RING_SIZE + i)}
-          />
-        </group>
-      ))}
+      {ISLET_RINGS.map(
+        (islets, ring) =>
+          islets.length > 0 && (
+            <group
+              key={ring}
+              ref={(el) => {
+                orbits.current[ring] = el
+              }}
+              position={[0, ORBIT_Y, 0]}
+              rotation={[0, RINGS[ring].phase, 0]}
+              userData={{ noShadow: true }}
+            >
+              <Exhibits
+                d={d}
+                focused={focused}
+                items={islets}
+                geometry={TOTEM}
+                material={TOTEM_MAT}
+                lift={1.6}
+                parts={[
+                  { geometry: ISLET_ROCK, material: mat.darkStone },
+                  { geometry: ISLET_TURF, material: mat.leafWarm, lift: 0.16 },
+                ]}
+                // Under the islet: the tree takes the air above it.
+                labelHeight={-2.6}
+                marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.3 }}
+                keys={false}
+                picked={pick.group >= 0 && ringOf(pick.group) === ring ? pick.group % RING_SIZE : -1}
+                onPick={(i) => pick.pickGroup(i < 0 ? -1 : ring * RING_SIZE + i)}
+                onSubFocus={pick.onGroupSubFocus}
+                place={(_, i) => {
+                  const g = ring * RING_SIZE + i
+                  const [x, y, z] = anchorOf(g)
+                  return [x, y + TREES[g].height / 2, z]
+                }}
+              />
+            </group>
+          ),
+      )}
 
-      {tree && (
+      {pick.layout && (
         <Tree
-          key={PANTHEONS[pantheon].id}
+          key={IDEOLOGIES[pick.group].id}
           d={d}
           focused={focused}
-          group={PANTHEONS[pantheon]}
-          figures={figures}
-          layout={tree}
-          picked={deity}
-          onPick={pickDeity}
+          group={IDEOLOGIES[pick.group]}
+          layout={pick.layout}
+          figures={pick.figures}
+          picked={pick.figure}
+          onPick={pick.pickFigure}
         />
       )}
     </ExhibitHall>
@@ -1952,4 +1902,5 @@ export const LANDMARKS: Record<DistrictId, React.ComponentType<LandmarkProps>> =
   life: memo(BiologicalBayou),
   cosmos: memo(CelestialCay),
   inventions: memo(InventorsInlet),
+  mythology: memo(MythologicalMonument),
 }

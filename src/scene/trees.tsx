@@ -154,7 +154,9 @@ export function useTreePick(
     [d.id, group],
   )
 
-  const layout = group >= 0 ? layouts[group] : null
+  // A district may have groups beyond its trees — the Monument's legends and
+  // creatures — which choose nothing to hang in the air.
+  const layout = group >= 0 && group < layouts.length ? layouts[group] : null
   const figures = useMemo<Exhibit[]>(
     () => (layout ? treeFigures(layout, groups[group], anchorOf(group), axis, (f) => kicker(group, f)) : []),
     [layout, group, groups, anchorOf, axis, kicker],

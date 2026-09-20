@@ -62,16 +62,17 @@ export function ExhibitNav({ focus }: Props) {
         <div className="exnav__groups">
           {groups.map((g, k) => {
             const isSelected = selection?.group === k
+            const selectable = g.selectable ?? config.groupsSelectable
             return (
               <button
                 key={g.name}
                 type="button"
                 className={`exnav__group${k === shown ? ' is-viewed' : ''}${isSelected ? ' is-selected' : ''}`}
                 style={{ '--group': g.color } as React.CSSProperties}
-                aria-pressed={config.groupsSelectable ? isSelected : k === shown}
+                aria-pressed={selectable ? isSelected : k === shown}
                 onClick={() => {
                   setViewed(k)
-                  if (!config.groupsSelectable) return
+                  if (!selectable) return
                   // A pantheon: choose it, or — chosen already with no god
                   // under it — let it go.
                   select(isSelected && selection.item < 0 ? null : { district: focus, group: k, item: -1 })
@@ -96,7 +97,7 @@ export function ExhibitNav({ focus }: Props) {
               onClick={() =>
                 select(
                   active
-                    ? config.groupsSelectable
+                    ? (group.selectable ?? config.groupsSelectable)
                       ? { district: focus, group: shown, item: -1 }
                       : null
                     : { district: focus, group: shown, item: it.index },

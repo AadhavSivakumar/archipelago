@@ -39,7 +39,7 @@ export const STELE = (() => {
   return roughen(geo, 0.012)
 })()
 /** White, so the instance colour — the era's — is the stone's colour. */
-const STELE_MAT = std({ color: '#ffffff', roughness: 0.86 }, QUARRIED)
+export const STELE_MAT = std({ color: '#ffffff', roughness: 0.86 }, QUARRIED)
 /** A ring on the ground under the chosen stele. */
 export const HALO = new THREE.TorusGeometry(0.72, 0.065, 10, 48)
 

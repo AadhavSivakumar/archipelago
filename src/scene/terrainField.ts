@@ -200,7 +200,7 @@ const CENTRES = DISTRICTS.map((d) => {
  * coast. Both would be given a redundant — and, at Scientific Shores' position,
  * actively wrong — circular island if they were left in the table.
  */
-const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science', 'life', 'inventions'])
+const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science', 'life', 'inventions', 'mythology'])
 
 /**
  * Every island in the archipelago, as centre and nominal radius.

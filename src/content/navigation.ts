@@ -9,6 +9,8 @@ import { FAMILIES } from './languages'
 import { LIFE } from './life'
 import { COSMOS } from './cosmos'
 import { INVENTIONS } from './inventions'
+import { IDEOLOGIES } from './ideologies'
+import { CREATURES, LEGENDS } from './lore'
 import type { Figure } from '../scene/familyTree'
 
 /**
@@ -29,7 +31,13 @@ export type NavItem = {
   /** The district's own index for this thing: an event, a god, a country. */
   index: number
 }
-export type NavGroup = { name: string; color: string; items: NavItem[] }
+export type NavGroup = {
+  name: string
+  color: string
+  items: NavItem[]
+  /** Overrides the district's rule for this group alone. */
+  selectable?: boolean
+}
 export type NavConfig = {
   groups: NavGroup[]
   /** Whether choosing a group is itself a selection (a pantheon), or only a
@@ -91,16 +99,26 @@ export const NAV: Record<DistrictId, NavConfig> = {
     })),
     groupsSelectable: false,
   },
-  ideology: {
-    groups: PANTHEONS.map((p) => ({
-      name: p.name,
-      color: p.color,
-      items: p.deities.map((deity, i) => ({
-        name: deity.name,
-        note: deity.parents?.length ? `child of ${deity.parents.join(' & ')}` : undefined,
-        index: i,
-      })),
-    })),
+  ideology: { groups: treeGroups(IDEOLOGIES, 'from'), groupsSelectable: true },
+  mythology: {
+    groups: [
+      ...treeGroups(
+        PANTHEONS.map((p) => ({ name: p.name, color: p.color, figures: p.deities })),
+        'child of',
+      ),
+      {
+        name: 'Legends',
+        color: '#e8d8a6',
+        items: LEGENDS.map((l, i) => ({ name: l.name, note: l.origin, index: i })),
+        selectable: false,
+      },
+      {
+        name: 'Creatures',
+        color: '#b9c7d6',
+        items: CREATURES.map((c, i) => ({ name: c.name, note: c.origin, index: i })),
+        selectable: false,
+      },
+    ],
     groupsSelectable: true,
   },
   geography: {

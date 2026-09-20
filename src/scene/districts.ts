@@ -9,6 +9,7 @@ export type DistrictId =
   | 'life'
   | 'cosmos'
   | 'inventions'
+  | 'mythology'
 
 export type District = {
   id: DistrictId
@@ -86,7 +87,7 @@ export const DISTRICTS: District[] = [
     id: 'ideology',
     name: 'Ideology Isles',
     blurb:
-      'Chart the courses of belief systems, from logical reason and ancient myths to divine doctrines.',
+      "Chart the family trees of ideas: political ideologies, economic doctrines, philosophies East and West, and the world's religions.",
     color: '#c2a03f',
     accent: '#f2cf6b',
     x: -52,
@@ -253,6 +254,26 @@ export const DISTRICTS: District[] = [
     pad: 2.4,
     padRadius: 10,
     relief: 1.4,
+  },
+  {
+    id: 'mythology',
+    name: 'Mythological Monument',
+    blurb:
+      'The family trees of the gods, the legends they star in, and the creatures that stalk them, gathered under one monument.',
+    color: '#7d6a9c',
+    accent: '#d7b8ff',
+    /*
+      On the mainland's highland behind the Alps' eastern shoulder — the one
+      site left that the home camera can still see, over the low ground
+      between the Alps and the Shores. A low mesa, raised a little above the
+      rolling country round it, with the tower on top.
+    */
+    x: 24,
+    z: -96,
+    seaward: 1.57,
+    pad: 7.5,
+    padRadius: 8,
+    relief: 1.8,
   },
 ]
 

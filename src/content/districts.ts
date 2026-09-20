@@ -8,6 +8,8 @@ import { FAMILIES } from './languages'
 import { LIFE } from './life'
 import { COSMOS } from './cosmos'
 import { INVENTIONS } from './inventions'
+import { IDEOLOGIES } from './ideologies'
+import { CREATURES, LEGENDS } from './lore'
 
 /**
  * What each district is actually about.
@@ -56,9 +58,19 @@ const eraTopics = (events: readonly { year: number }[]): Topic[] =>
 
 export const CONTENT: Record<DistrictId, DistrictContent> = {
   ideology: {
-    summary: `${PANTHEONS.length} mythologies, each on an islet of its own, and the family tree of every god in them.`,
-    topics: PANTHEONS.map((p) => ({ name: p.name, note: `${p.deities.length} figures, from ${p.deities[0].name} down.` })),
-    hint: 'Choose an islet to raise its family tree, then any figure in it to read who they were.',
+    summary: `${IDEOLOGIES.length} schools of thought, each on an islet of its own, each a family tree of ideas.`,
+    topics: IDEOLOGIES.map((g) => ({ name: g.name, note: `${g.figures.length} ideas, from ${g.figures[0].name} down.` })),
+    hint: 'Choose an islet to raise its tree of ideas, then any idea in it to read about it.',
+  },
+
+  mythology: {
+    summary: `${PANTHEONS.length} pantheons with their family trees, ${LEGENDS.length} legends along the avenue, and ${CREATURES.length} creatures on the outer ring.`,
+    topics: [
+      { name: 'Pantheons', note: PANTHEONS.map((p) => p.name).join(', ') + '.' },
+      { name: 'Legends', note: `${LEGENDS.length} stories, from the Enūma Eliš to the Dreamtime.` },
+      { name: 'Creatures', note: `${CREATURES.length} of them, from the dragon to the wendigo.` },
+    ],
+    hint: "Choose a shrine to raise its pantheon's family tree, a stone on the avenue for a legend, or a statue for a creature.",
   },
 
   history: {

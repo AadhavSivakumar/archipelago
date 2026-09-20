@@ -193,6 +193,28 @@ const CENTRES = DISTRICTS.map((d) => {
 })
 
 /**
+ * Every flat top in the world: each district's plateau, and the small pads
+ * of any satellite isles it has. The satellites carry their district's bumps
+ * nowhere — those belong to the main plateau — and a little relief of their
+ * own.
+ */
+type Pad = {
+  x: number
+  z: number
+  pad: number
+  padRadius: number
+  relief: number
+  bumps?: { dx: number; dz: number; h: number; r: number }[]
+  lowland?: number
+}
+const PADS: Pad[] = [
+  ...CENTRES.map((c) => ({ x: c.x, z: c.z, pad: c.d.pad, padRadius: c.d.padRadius, relief: c.d.relief, bumps: c.d.bumps, lowland: c.d.lowland })),
+  ...CENTRES.flatMap((c) =>
+    (c.d.satellites ?? []).map((s) => ({ x: c.x + s.dx, z: c.z + s.dz, pad: s.pad, padRadius: s.padRadius, relief: 0.6 })),
+  ),
+]
+
+/**
  * Districts that sit on the mainland rather than on an island of their own, and
  * so contribute no entry to ISLES.
  *
@@ -244,8 +266,13 @@ const MAINLAND_CREST = 0.035
 const ISLE_CREST = (radius: number) => clamp(1.75 / radius, MAINLAND_CREST, 0.12)
 
 const ISLES: { x: number; z: number; radius: number; seed: number; crest: number }[] = [
-  ...DISTRICTS.filter((d) => !MAINLAND_DISTRICTS.has(d.id)).map((d, i) => {
+  ...DISTRICTS.filter((d) => !MAINLAND_DISTRICTS.has(d.id)).flatMap((d, i) => {
     const [x, z] = districtCentre(d)
+    // A district's satellite isles, sized by the same rule as its own island.
+    const satellites = (d.satellites ?? []).map((s, k) => {
+      const radius = s.padRadius * 2.75 + 4
+      return { x: x + s.dx, z: z + s.dz, radius, seed: i * 13 + 50 + k * 7, crest: ISLE_CREST(radius) }
+    })
     /*
       Radius follows the plateau, with a lot of shoulder. The nominal figure is
       not the shoreline: the wobble below and the mask's own falloff bring the
@@ -255,7 +282,7 @@ const ISLES: { x: number; z: number; radius: number; seed: number; crest: number
       had beach beyond the plateau skirt.
     */
     const radius = d.padRadius * 2.75 + 4
-    return { x, z, radius, seed: i * 13 + 3, crest: ISLE_CREST(radius) }
+    return [{ x, z, radius, seed: i * 13 + 3, crest: ISLE_CREST(radius) }, ...satellites]
   }),
   /*
     The centre island. Carries no district — it exists to hold the armillary
@@ -269,10 +296,8 @@ const ISLES: { x: number; z: number; radius: number; seed: number; crest: number
   // of the open water on the +Z side, which is meant to stay open.
   { x: -14, z: 40, radius: 6.5, seed: 207, crest: ISLE_CREST(6.5) },
   { x: 16, z: 44, radius: 4.5, seed: 214, crest: ISLE_CREST(4.5) },
-  { x: -74, z: 8, radius: 6.0, seed: 221, crest: ISLE_CREST(6.0) },
   { x: 74, z: 2, radius: 7.0, seed: 228, crest: ISLE_CREST(7.0) },
   { x: 10, z: -40, radius: 5.0, seed: 235, crest: ISLE_CREST(5.0) },
-  { x: -26, z: -42, radius: 5.5, seed: 242, crest: ISLE_CREST(5.5) },
 ]
 
 /** Where the mainland's coast runs, before its wobble. Land lies further -Z. */
@@ -320,7 +345,7 @@ function coastZ(x: number) {
   const wobble = MAINLAND_WOBBLE * signedFbm(x * 0.018 + 91, x * 0.011 - 4, 4)
   // The Inventors' Inlet: the coast's own bend there, deepened into an inlet,
   // so the district's plateau sits at its head with water on three sides.
-  const inlet = 6 * Math.exp(-(((x - 94) / 14) ** 2))
+  const inlet = 16 * Math.exp(-(((x - 94) / 10) ** 2))
   return MAINLAND_Z - inlet + wobble
 }
 
@@ -487,24 +512,33 @@ export function sampleHeight(x: number, z: number) {
   h += land * 0.85 * (fbm(x * 0.28 + 17, z * 0.28 - 9, 3) - 0.5)
   h += land * 0.4 * (fbm(x * 0.9 + 3, z * 0.9 + 11, 2) - 0.5)
 
-  // Per-district relief, then a plateau flattened under the landmark.
-  for (const c of CENTRES) {
+  // Per-district relief, then a plateau flattened under the landmark — and the
+  // same for every satellite isle's small top.
+  for (const c of PADS) {
     const dist = Math.hypot(x - c.x, z - c.z)
-    const reach = c.d.padRadius * 3
+    const reach = c.padRadius * 3
     if (dist > reach) continue
 
     const ring = Math.exp(-((dist / reach) ** 2) * 2.2)
-    h += c.d.relief * ring * (fbm(x * 0.09 + c.x, z * 0.09 + c.z, 3) - 0.35)
+    h += c.relief * ring * (fbm(x * 0.09 + c.x, z * 0.09 + c.z, 3) - 0.35)
 
-    const flat = smoothstep(c.d.padRadius * 1.45, c.d.padRadius * 0.98, dist)
-    h += (c.d.pad - h) * flat * 0.92
+    // A lowland: the island's own hills held down to a cap round the pad,
+    // fading back to their full height toward the shore.
+    if (c.lowland !== undefined) {
+      const cap = c.pad + c.lowland
+      const w = smoothstep(c.padRadius * 3.2, c.padRadius * 1.2, dist)
+      if (h > cap) h = cap + (h - cap) * (1 - w)
+    }
+
+    const flat = smoothstep(c.padRadius * 1.45, c.padRadius * 0.98, dist)
+    h += (c.pad - h) * flat * 0.92
   }
 
-  // Peaks are added after flattening so the Alps are not levelled by their own
-  // plateau.
-  for (const c of CENTRES) {
-    if (!c.d.bumps) continue
-    for (const b of c.d.bumps) {
+  // Peaks — and hollows: a negative bump carves a lagoon or a channel — are
+  // added after flattening so the Alps are not levelled by their own plateau.
+  for (const c of PADS) {
+    if (!c.bumps) continue
+    for (const b of c.bumps) {
       const dist = Math.hypot(x - (c.x + b.dx), z - (c.z + b.dz))
       h += b.h * Math.exp(-((dist / b.r) ** 2))
     }

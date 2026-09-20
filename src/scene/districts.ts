@@ -67,6 +67,18 @@ export type District = {
    * on whichever of these is tallest, so these can be retuned freely.
    */
   bumps?: { dx: number; dz: number; h: number; r: number }[]
+  /**
+   * Small islands of the district's own, each with a flat top, set around
+   * the main one. The Ideology Isles are isles: each school of thought
+   * stands on real ground of its own with water between.
+   */
+  satellites?: { dx: number; dz: number; pad: number; padRadius: number }[]
+  /**
+   * Caps the island's own relief round the plateau at this height above
+   * the pad, so a district that is meant to be low — a cay, a sandbank —
+   * is not ringed by the hills every island otherwise grows.
+   */
+  lowland?: number
 }
 
 /**
@@ -94,8 +106,16 @@ export const DISTRICTS: District[] = [
     z: -20,
     seaward: 2.1,
     pad: 7.2,
-    padRadius: 8,
+    padRadius: 6,
     relief: 2.2,
+    // Five isles round the rotunda's own, on bearings that keep clear of the
+    // centre island to the east and the mainland to the north.
+    satellites: [10, 70, 130, 195, 320].map((deg) => ({
+      dx: Math.cos((deg * Math.PI) / 180) * 24,
+      dz: Math.sin((deg * Math.PI) / 180) * 24,
+      pad: 3.2,
+      padRadius: 1.7,
+    })),
   },
   {
     id: 'history',
@@ -153,6 +173,8 @@ export const DISTRICTS: District[] = [
     pad: 2.0,
     padRadius: 8,
     relief: 1.1,
+    // A tide pool on the beach, just below the waterline.
+    bumps: [{ dx: 3.5, dz: 11, h: -2.6, r: 2.2 }],
   },
   {
     id: 'art',
@@ -182,10 +204,14 @@ export const DISTRICTS: District[] = [
     padRadius: 5,
     relief: 4.5,
     bumps: [
-      { dx: -7.5, dz: -3.5, h: 9.5, r: 5.2 },
-      { dx: 6.5, dz: -4.5, h: 8, r: 4.6 },
-      { dx: 0.5, dz: -9, h: 12, r: 6 },
-      { dx: -3, dz: 4.5, h: 4.5, r: 4 },
+      { dx: -7.5, dz: -3.5, h: 11, r: 5.2 },
+      { dx: 6.5, dz: -4.5, h: 9.5, r: 4.6 },
+      { dx: 0.5, dz: -9, h: 14, r: 6 },
+      { dx: -3, dz: 4.5, h: 5, r: 4 },
+      // The range runs on to either side, so the Alps are a chain, not a hill.
+      { dx: -16, dz: -12, h: 8, r: 5.5 },
+      { dx: 14, dz: -13, h: 9, r: 5.5 },
+      { dx: -26, dz: -20, h: 6, r: 5 },
     ],
   },
   /*
@@ -209,11 +235,16 @@ export const DISTRICTS: District[] = [
     x: -70,
     z: 62,
     seaward: 1.9,
-    pad: 4.0,
-    padRadius: 5.5,
-    relief: 1.4,
-    // Carved below the waterline: the lagoon itself, inside the atoll's rim.
-    bumps: [{ dx: 0, dz: 0, h: -8, r: 4.5 }],
+    pad: 3.6,
+    padRadius: 6,
+    relief: 1.0,
+    // An atoll: the lagoon carved below the waterline inside a ring of
+    // sand, and a mouth cut through the ring on the seaward side.
+    bumps: [
+      { dx: 0, dz: 0, h: -9, r: 6.5 },
+      { dx: Math.cos(1.9) * 10, dz: Math.sin(1.9) * 10, h: -7, r: 2.6 },
+      { dx: Math.cos(1.9) * 13.5, dz: Math.sin(1.9) * 13.5, h: -8, r: 3.0 },
+    ],
   },
   {
     id: 'life',
@@ -227,6 +258,14 @@ export const DISTRICTS: District[] = [
     pad: 2.2,
     padRadius: 7,
     relief: 1.2,
+    // Channels: chains of hollows carved below the waterline, so the bay
+    // threads in between the cypresses on either flank and behind them.
+    bumps: [
+      ...[11, 8.5, 6].map((r) => ({ dx: Math.cos(1.57 + 0.75) * r, dz: Math.sin(1.57 + 0.75) * r, h: -4.5, r: 2.3 })),
+      ...[11, 8.5, 6].map((r) => ({ dx: Math.cos(1.57 - 0.75) * r, dz: Math.sin(1.57 - 0.75) * r, h: -4.5, r: 2.3 })),
+      { dx: Math.cos(1.57 + Math.PI) * 5.5, dz: Math.sin(1.57 + Math.PI) * 5.5, h: -4.5, r: 2.4 },
+      { dx: Math.cos(1.57 + Math.PI) * 8.5, dz: Math.sin(1.57 + Math.PI) * 8.5, h: -4.5, r: 2.4 },
+    ],
   },
   {
     id: 'cosmos',
@@ -237,9 +276,12 @@ export const DISTRICTS: District[] = [
     x: 70,
     z: 62,
     seaward: 1.25,
-    pad: 4.5,
-    padRadius: 5,
-    relief: 1.5,
+    // A cay is a sandbank: low enough that its top is in the terrain's sand
+    // band, wide enough that its rings of markers stay dry.
+    pad: 1.0,
+    padRadius: 7,
+    relief: 0.6,
+    lowland: 0.6,
   },
   {
     id: 'inventions',
@@ -249,7 +291,7 @@ export const DISTRICTS: District[] = [
     color: '#a8783f',
     accent: '#f2c27a',
     x: 94,
-    z: -88,
+    z: -97,
     seaward: 1.57,
     pad: 2.4,
     padRadius: 10,
@@ -271,7 +313,7 @@ export const DISTRICTS: District[] = [
     x: 24,
     z: -96,
     seaward: 1.57,
-    pad: 7.5,
+    pad: 11.5,
     padRadius: 8,
     relief: 1.8,
   },

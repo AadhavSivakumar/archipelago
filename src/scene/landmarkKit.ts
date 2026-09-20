@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { DISTRICTS, districtCentre, type District, type DistrictId } from './districts'
 import { sampleHeight } from './terrain'
 import { weather, type WeatherOptions } from './surface'
@@ -283,6 +284,9 @@ export function groundRibbon(
   d: District,
   line: readonly { x: number; z: number; color: THREE.Color }[],
   width: number,
+  /** A height (district-local) the strip never drops below: a boardwalk
+      stays level over the channel it crosses. */
+  floor = Number.NEGATIVE_INFINITY,
 ) {
   const count = line.length
   const positions = new Float32Array(count * 2 * 3)
@@ -302,7 +306,7 @@ export function groundRibbon(
       const z = p.z + nz * w
       const o = (k * 2 + side) * 3
       positions[o] = x
-      positions[o + 1] = groundAt(d, x, z) + 0.05
+      positions[o + 1] = Math.max(groundAt(d, x, z) + 0.05, floor)
       positions[o + 2] = z
       colors[o] = p.color.r
       colors[o + 1] = p.color.g
@@ -372,3 +376,38 @@ export function findShore(d: District, dirX: number, dirZ: number, from: number,
   return { lx: dirX * 2, lz: dirZ * 2, y: groundAt(d, dirX * 2, dirZ * 2) }
 }
 
+
+/** A boulder: a coarse polyhedron, roughened, for shores and rims. */
+export const BOULDER = roughen(new THREE.IcosahedronGeometry(0.55, 2), 0.2)
+
+/**
+ * A palm: the trunk, and the crown of fronds as one geometry.
+ *
+ * The trunk is a lathe that leans nowhere, because every palm here is set
+ * with its own rotation and scale, and the eye reads the variety from those.
+ * The fronds are eight thin boxes hinged at the trunk's top and drooping,
+ * alternately more and less, which is the whole silhouette of a palm.
+ */
+export const PALM_TRUNK = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, 0)
+  at(0.26, 0)
+  at(0.21, 1.4)
+  at(0.18, 2.9)
+  at(0.15, 4.3)
+  at(0, 4.3)
+  return new THREE.LatheGeometry(p, 10)
+})()
+export const PALM_FRONDS = (() => {
+  const parts: THREE.BufferGeometry[] = []
+  for (let i = 0; i < 8; i++) {
+    const frond = new THREE.BoxGeometry(0.3, 0.05, 2.4)
+    frond.translate(0, 0, 1.1)
+    frond.rotateX(0.5 + (i % 2) * 0.25)
+    frond.rotateY((i / 8) * Math.PI * 2 + (i % 3) * 0.1)
+    frond.translate(0, 4.3, 0)
+    parts.push(frond)
+  }
+  return mergeGeometries(parts)!
+})()

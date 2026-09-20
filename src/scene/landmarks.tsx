@@ -42,12 +42,15 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 import {
   ACCENT,
+  BOULDER,
   DRESSED,
   findShore,
   groundAt,
   groundRibbon,
   lumpen,
   mat,
+  PALM_FRONDS,
+  PALM_TRUNK,
   RIBBON_MAT,
   roughen,
   scatter,
@@ -58,7 +61,7 @@ export type { LandmarkProps } from './landmarkKit'
 export type { SubFocus } from './exhibits'
 
 // ===========================================================================
-// Ideology Isles — a rotunda, ringed by schools of thought on floating islets
+// Ideology Isles — a rotunda, and a school of thought on each isle round it
 // ===========================================================================
 
 const STEP = new THREE.CylinderGeometry(1, 1, 0.45, 160)
@@ -107,53 +110,6 @@ const DOME = new THREE.SphereGeometry(5.2, 192, 96, 0, Math.PI * 2, 0, Math.PI /
 const FINIAL = new THREE.SphereGeometry(0.55, 80, 56)
 const SPIRE = new THREE.ConeGeometry(0.3, 1.4, 80)
 
-/*
-  The orbiting islets: a crag with turf on it, rather than a cone with a lid.
-
-  These were an 80-segment cone, an 80-segment disc and a box — three primitives
-  in their most recognisable form, floating at eye level right beside the
-  rotunda, which made them the most toy-like thing in the district however good
-  the rotunda got. Smoothness was working against them too: at 80 segments the
-  cone is perfectly round, so it reads as a machined part and the extra
-  triangles are spent making it read that way.
-
-  Sixteen segments instead, then roughened. The facets become hewn faces and the
-  displacement breaks the remaining regularity, which is the same treatment the
-  Alps menhirs get and for the same reason. Authored with y=0 at the turf line
-  and the root running negative, so the pieces stack at their real offsets
-  instead of being flipped into place.
-*/
-const ISLET_ROCK = (() => {
-  const p: THREE.Vector2[] = []
-  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
-  at(0, -3.5) // the root tapers to a point rather than a flat cut
-  at(0.3, -2.8)
-  at(0.58, -2.05)
-  at(0.74, -1.55)
-  at(0.7, -1.2) // a waist, so the profile is not one straight taper
-  at(0.98, -0.8)
-  at(1.16, -0.42)
-  at(1.44, -0.1) // undercut lip: the overhang is what says "torn loose"
-  at(1.5, 0.06)
-  at(1.3, 0.16)
-  at(0, 0.16)
-  return roughen(new THREE.LatheGeometry(p, 16), 0.15)
-})()
-
-/** Turf, as a shallow cap that crowns the rock instead of capping it flat. */
-const ISLET_TURF = (() => {
-  const p: THREE.Vector2[] = []
-  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
-  at(0, -0.06)
-  at(1.46, -0.06)
-  at(1.42, 0.08)
-  at(1.24, 0.22)
-  at(0.92, 0.33)
-  at(0.5, 0.41)
-  at(0, 0.44)
-  return roughen(new THREE.LatheGeometry(p, 20), 0.07)
-})()
-
 /** A totem on each islet, in its pantheon's colour: the thing to click. */
 const TOTEM = roughen(new THREE.CylinderGeometry(0.2, 0.34, 2.3, 5, 3), 0.05)
 const TOTEM_MAT = std({ color: '#ffffff', roughness: 0.7, metalness: 0.1 }, DRESSED)
@@ -166,95 +122,61 @@ const COLONNADE = Array.from({ length: 14 }, (_, i) => {
 })
 
 /*
-  Islets, one per school of thought, orbiting the rotunda.
+  Isles, one per school of thought.
 
-  Each islet carries a totem in its school's colour, and choosing one raises
-  that school's family tree of ideas in the air above it: a row per
-  generation, the oldest ideas at the top, each an orb with its name under
-  it and a line to what it grew out of. The tree is laid out by familyTree.ts
-  and hangs in the plane that faces the district's seaward bearing, which is
-  the bearing the camera approaches along, so it is read as a chart rather
-  than seen edge-on.
-
-  The orbit holds still while the district is focused. It has to: the camera
-  flies to where an islet was when it was chosen, and an islet that kept
-  going would have left by the time the camera arrived.
-
-  The islets ride at radius 11, beyond the plateau's shoulder, because the
-  widest tree — the Norse, eleven figures across — is over ten units wide,
-  and its neighbours on either side need to be clear of it.
+  They are real islands: the district's satellites in districts.ts, each a
+  small flat-topped isle with water between it and the rotunda's own. Each
+  carries a totem in its school's colour, and choosing one raises that
+  school's family tree of ideas in the air above it: a row per generation,
+  the oldest ideas at the top, each an orb with its name under it and a line
+  to what it grew out of. The tree hangs in the plane that faces the
+  district's seaward bearing, which is the bearing the camera approaches
+  along, so it is read as a chart rather than seen edge-on.
 */
-const ORBIT_Y = 7
-/**
- * The islets' rings. One ring while they are few enough to sit apart on it;
- * two, turning against each other, once they are not — the pantheons that
- * used to live here needed the second, and may again.
- */
-const RINGS = [
-  { r: 10.6, speed: 0.09, phase: 0 },
-  { r: 15.2, speed: -0.055, phase: Math.PI / 7 },
-] as const
-const RING_SIZE = IDEOLOGIES.length <= 8 ? IDEOLOGIES.length : Math.ceil(IDEOLOGIES.length / RINGS.length)
-const ringOf = (i: number) => Math.min(RINGS.length - 1, Math.floor(i / RING_SIZE))
-/** How far above an islet's turf its tree's lowest row hangs. */
-const TREE_LIFT = 2.2
+/** How far above an isle's top its tree's lowest row hangs. */
+const TREE_LIFT = 2.6
 const TREES = IDEOLOGIES.map((g) => layoutTree(g.figures))
-
-/** The islets of each ring, in that ring's own orbiting frame. */
-const ISLET_RINGS: Exhibit[][] = RINGS.map((ring, k) =>
-  IDEOLOGIES.map((g, i) => ({ g, i }))
-    .filter(({ i }) => ringOf(i) === k)
-    .map(({ g, i }, j, members) => {
-      const a = ring.phase + (j / members.length) * Math.PI * 2
-      return {
-        name: g.name,
-        article: g.article,
-        kicker: `School of thought · ${g.figures.length} ideas`,
-        x: Math.cos(a) * ring.r,
-        y: Math.sin(a * 1.7 + k) * 1.0,
-        z: Math.sin(a) * ring.r,
-        // Each islet turned to its own bearing, so they are not one shape
-        // repeated round a circle, which is exactly how it reads when they
-        // share a rotation and the orbit spins them past the camera.
-        yaw: i * 1.27,
-        color: g.color,
-        // Frame the whole tree, not the islet.
-        extent: treeExtent(TREES[i]),
-        elevation: 0.26,
-      }
-    }),
-)
+/** A low stone drum under each totem, so it stands on something built. */
+const ISLE_BASE = new THREE.CylinderGeometry(1.3, 1.55, 0.5, 24)
 
 export function IdeologyIsles({ d, focused }: LandmarkProps) {
-  const orbits = useRef<(THREE.Group | null)[]>([])
-  useFrame((_, dt) => {
-    // Held still while the district is focused; see the note on the islets.
-    if (focused) return
-    orbits.current.forEach((orbit, k) => {
-      if (orbit) orbit.rotation.y += dt * RINGS[k].speed
-    })
-  })
+  const isles = useMemo<Exhibit[]>(
+    () =>
+      (d.satellites ?? []).slice(0, IDEOLOGIES.length).map((s, i) => {
+        const g = IDEOLOGIES[i]
+        return {
+          name: g.name,
+          article: g.article,
+          kicker: `School of thought · ${g.figures.length} ideas`,
+          x: s.dx,
+          y: groundAt(d, s.dx, s.dz),
+          z: s.dz,
+          yaw: i * 1.27,
+          color: g.color,
+          // Frame the whole tree, not the isle.
+          extent: treeExtent(TREES[i]),
+          elevation: 0.26,
+        }
+      }),
+    [d],
+  )
+  // Boulders on each isle's shore, so it reads as an isle and not a drum.
+  const boulders = useMemo(
+    () =>
+      isles.flatMap((it, i) =>
+        [0, 1, 2, 3].map((k) => {
+          const a = i * 1.1 + k * 1.6
+          const x = it.x + Math.cos(a) * (2.4 + (k % 2) * 0.5)
+          const z = it.z + Math.sin(a) * (2.4 + (k % 2) * 0.5)
+          return { x, y: groundAt(d, x, z), z, s: 0.55 + k * 0.12, rot: k * 1.3 + i }
+        }),
+      ),
+    [isles, d],
+  )
 
-  /** An islet's authored position, carried round by its ring. */
-  const islet = useCallback((it: Exhibit, ring: number): [number, number, number] => {
-    const a = orbits.current[ring]?.rotation.y ?? 0
-    const c = Math.cos(a)
-    const s = Math.sin(a)
-    return [it.x * c + it.z * s, ORBIT_Y + it.y, -it.x * s + it.z * c]
-  }, [])
-
-  /*
-    Where a tree hangs: over its islet, read from the ring's current turn.
-    Safe to read during a render because the rings only turn while the
-    district is unfocused, and nothing can be chosen then.
-  */
   const anchorOf = useCallback(
-    (g: number): [number, number, number] => {
-      const ring = ringOf(g)
-      const [x, y, z] = islet(ISLET_RINGS[ring][g % RING_SIZE], ring)
-      return [x, y + TREE_LIFT, z]
-    },
-    [islet],
+    (g: number): [number, number, number] => [isles[g].x, isles[g].y + TREE_LIFT, isles[g].z],
+    [isles],
   )
   // Left to right as seen from the seaward bearing: the camera's right vector.
   const axis = useMemo(() => ({ x: Math.sin(d.seaward), z: -Math.cos(d.seaward) }), [d])
@@ -264,6 +186,12 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
     [],
   )
   const pick = useTreePick(d, focused, IDEOLOGIES, TREES, anchorOf, axis, kicker)
+
+  const atlas = useMemo(() => makeLabelAtlas(IDEOLOGIES.map((g) => g.name)), [])
+  const labels = useMemo<LabelPlacement[]>(
+    () => isles.map((it, i) => ({ cell: i, x: it.x, y: it.y + 3.4, z: it.z, width: 2.4 })),
+    [isles],
+  )
 
   return (
     <ExhibitHall focused={focused} onClear={() => pick.pickGroup(-1)}>
@@ -284,46 +212,27 @@ export function IdeologyIsles({ d, focused }: LandmarkProps) {
       <mesh geometry={FINIAL} position={[0, 12.6, 0]} material={mat.gold} />
       <mesh geometry={SPIRE} position={[0, 13.5, 0]} material={mat.gold} />
 
-      {/* noShadow: still rotating after the shadow map freezes. */}
-      {ISLET_RINGS.map(
-        (islets, ring) =>
-          islets.length > 0 && (
-            <group
-              key={ring}
-              ref={(el) => {
-                orbits.current[ring] = el
-              }}
-              position={[0, ORBIT_Y, 0]}
-              rotation={[0, RINGS[ring].phase, 0]}
-              userData={{ noShadow: true }}
-            >
-              <Exhibits
-                d={d}
-                focused={focused}
-                items={islets}
-                geometry={TOTEM}
-                material={TOTEM_MAT}
-                lift={1.6}
-                parts={[
-                  { geometry: ISLET_ROCK, material: mat.darkStone },
-                  { geometry: ISLET_TURF, material: mat.leafWarm, lift: 0.16 },
-                ]}
-                // Under the islet: the tree takes the air above it.
-                labelHeight={-2.6}
-                marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.3 }}
-                keys={false}
-                picked={pick.group >= 0 && ringOf(pick.group) === ring ? pick.group % RING_SIZE : -1}
-                onPick={(i) => pick.pickGroup(i < 0 ? -1 : ring * RING_SIZE + i)}
-                onSubFocus={pick.onGroupSubFocus}
-                place={(_, i) => {
-                  const g = ring * RING_SIZE + i
-                  const [x, y, z] = anchorOf(g)
-                  return [x, y + TREES[g].height / 2, z]
-                }}
-              />
-            </group>
-          ),
-      )}
+      {boulders.map((b, i) => (
+        <mesh key={i} geometry={BOULDER} position={[b.x, b.y + 0.2, b.z]} rotation={[b.rot, b.rot * 0.7, 0]} scale={b.s} material={mat.darkStone} />
+      ))}
+
+      <Exhibits
+        d={d}
+        focused={focused}
+        items={isles}
+        geometry={TOTEM}
+        material={TOTEM_MAT}
+        lift={1.5}
+        parts={[{ geometry: ISLE_BASE, material: mat.stone, lift: 0.25 }]}
+        labelHeight={2.7}
+        marker={{ geometry: ISLET_RING, material: ACCENT.ideology, lift: -1.0 }}
+        keys={false}
+        picked={pick.group}
+        onPick={pick.pickGroup}
+        onSubFocus={pick.onGroupSubFocus}
+        place={(it, i) => [it.x, it.y + TREE_LIFT + TREES[i].height / 2, it.z]}
+      />
+      <InstancedLabels atlas={atlas} placements={labels} fade={[40, 80]} />
 
       {pick.layout && (
         <Tree
@@ -383,6 +292,58 @@ const ZIGGURAT_SCALE = 0.58
 const OBELISK_SHAFT = new THREE.CylinderGeometry(0.42, 0.62, 7.4, 4)
 const OBELISK_CAP = new THREE.ConeGeometry(0.6, 1.3, 4)
 
+/*
+  The habitat: a dwelling of each age, on the shore at the bearing where
+  that age begins on the spiral. A round hut for the first farmers, a
+  mud-brick house, a temple, a keep, a timber house, a brick terrace and a
+  glass block — the same island lived in seven ways.
+*/
+const DWELLINGS: { geometry: THREE.BufferGeometry; material: THREE.Material }[] = (() => {
+  const hut = mergeGeometries([
+    new THREE.CylinderGeometry(0.85, 0.9, 0.8, 12).translate(0, 0.4, 0),
+    new THREE.ConeGeometry(1.15, 1.0, 12).translate(0, 1.3, 0),
+  ])!
+  const mudbrick = mergeGeometries([
+    new THREE.BoxGeometry(1.9, 1.2, 1.6).translate(0, 0.6, 0),
+    new THREE.BoxGeometry(2.0, 0.2, 1.7).translate(0, 1.25, 0),
+  ])!
+  const temple = mergeGeometries([
+    new THREE.BoxGeometry(2.6, 0.3, 1.8).translate(0, 0.15, 0),
+    ...[-0.95, -0.32, 0.32, 0.95].flatMap((x) =>
+      [-0.6, 0.6].map((z) => new THREE.CylinderGeometry(0.12, 0.14, 1.3, 10).translate(x, 0.95, z)),
+    ),
+    new THREE.BoxGeometry(2.6, 0.28, 1.8).translate(0, 1.74, 0),
+  ])!
+  const keep = mergeGeometries([
+    new THREE.BoxGeometry(1.5, 2.6, 1.5).translate(0, 1.3, 0),
+    ...[-0.6, 0.6].flatMap((x) => [-0.6, 0.6].map((z) => new THREE.BoxGeometry(0.3, 0.35, 0.3).translate(x, 2.77, z))),
+  ])!
+  const gable = new THREE.Shape()
+  gable.moveTo(-1.05, 0)
+  gable.lineTo(0, 0.75)
+  gable.lineTo(1.05, 0)
+  gable.closePath()
+  const timber = mergeGeometries([
+    new THREE.BoxGeometry(1.9, 1.2, 1.5).translate(0, 0.6, 0).toNonIndexed(),
+    new THREE.ExtrudeGeometry(gable, { depth: 1.7, bevelEnabled: false, curveSegments: 1 }).translate(0, 1.2, -0.85),
+  ])!
+  const brick = mergeGeometries([
+    new THREE.BoxGeometry(2.2, 1.7, 1.4).translate(0, 0.85, 0),
+    new THREE.BoxGeometry(0.32, 0.7, 0.32).translate(0.7, 1.9, -0.3),
+  ])!
+  const tower = new THREE.BoxGeometry(1.2, 3.4, 1.2).translate(0, 1.7, 0)
+  return [
+    { geometry: hut, material: mat.wood },
+    { geometry: mudbrick, material: mat.sandstone },
+    { geometry: temple, material: mat.marble },
+    { geometry: keep, material: mat.stone },
+    { geometry: timber, material: mat.wood },
+    { geometry: brick, material: mat.ember },
+    { geometry: tower, material: mat.glass },
+  ]
+})()
+const DWELLING_R = 12.4
+
 export function HistoricalHabitat({ d, focused }: LandmarkProps) {
   const timeline = useMemo(() => layoutTimeline(d, EVENTS), [d])
   const picked = useDistrictSelection(d.id)?.item ?? -1
@@ -410,6 +371,23 @@ export function HistoricalHabitat({ d, focused }: LandmarkProps) {
         <mesh geometry={OBELISK_SHAFT} rotation={[0, Math.PI / 4, 0]} position={[0, 4.3, 0]} material={mat.sandstone} />
         <mesh geometry={OBELISK_CAP} rotation={[0, Math.PI / 4, 0]} position={[0, 8.65, 0]} material={mat.gold} />
       </group>
+
+      {/* The dwellings, one per age, on the shore where each age begins. */}
+      {timeline.eras.map((era, i) => {
+        const a = Math.atan2(era.z, era.x)
+        const x = Math.cos(a) * DWELLING_R
+        const z = Math.sin(a) * DWELLING_R
+        const dwelling = DWELLINGS[Math.min(i, DWELLINGS.length - 1)]
+        return (
+          <mesh
+            key={i}
+            geometry={dwelling.geometry}
+            material={dwelling.material}
+            position={[x, groundAt(d, x, z), z]}
+            rotation={[0, Math.atan2(-Math.cos(a), -Math.sin(a)), 0]}
+          />
+        )
+      })}
 
       <Timeline d={d} focused={focused} layout={timeline} picked={picked} onPick={pick} marker={ACCENT.history} />
     </ExhibitHall>
@@ -509,6 +487,23 @@ const GARDEN_BRASS = std(
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
 const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
 
+/*
+  The garden the map sits in: four flower beds at the plate's corners, each a
+  clipped hedge box with its blossom on top, and a gravel walk round the
+  whole. A parterre with nothing growing in it is a car park.
+*/
+const BED_HEDGE = new THREE.BoxGeometry(2.2, 0.5, 2.2)
+const BED_BLOOM = new THREE.BoxGeometry(1.9, 0.14, 1.9)
+const BLOOMS = ['#e07a9a', '#f2cf6b', '#c9b6ff', '#f0b7a0'].map((color) =>
+  std({ color, roughness: 0.95 }, { grain: 12, mottle: 0.45, bump: 0.5, rough: 0.1 }),
+)
+const BEDS = [
+  [-(MAP_W / 2 - 2.0), -(MAP_D / 2 + 2.7)],
+  [MAP_W / 2 - 2.0, -(MAP_D / 2 + 2.7)],
+  [-(MAP_W / 2 - 2.0), MAP_D / 2 + 2.7],
+  [MAP_W / 2 - 2.0, MAP_D / 2 + 2.7],
+] as const
+
 /** Equator and prime meridian, picked out in brass. */
 const EQUATOR = new THREE.BoxGeometry(MAP_W, 0.08, 0.1)
 const PRIME = new THREE.BoxGeometry(0.1, 0.08, MAP_D)
@@ -584,6 +579,24 @@ const MAP_SEA_MAT = water(
 let landMat: THREE.MeshStandardMaterial | null = null
 
 export function GeographicalGarden({ d, focused }: LandmarkProps) {
+  // The gravel walk: a rounded rectangle outside the hedges.
+  const walk = useMemo(() => {
+    const gravel = new THREE.Color('#b9b3a4')
+    const hx = MAP_W / 2 + 1.9
+    const hz = MAP_D / 2 + 1.9
+    const N = 96
+    const line = Array.from({ length: N + 1 }, (_, k) => {
+      const t = ((k % N) / N) * Math.PI * 2
+      // A superellipse: square-ish, with soft corners.
+      const c = Math.cos(t)
+      const sn = Math.sin(t)
+      const x = Math.sign(c) * Math.pow(Math.abs(c), 0.5) * hx
+      const z = Math.sign(sn) * Math.pow(Math.abs(sn), 0.5) * hz
+      return { x, z, color: gravel }
+    })
+    return groundRibbon(d, line, 0.9)
+  }, [d])
+
   const cypresses = useMemo(() => scatter(d, 10, 8.5, 11.0, 0x5eed), [d])
   const material = useMemo(() => (landMat ??= landMaterial()), [])
 
@@ -868,6 +881,15 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
           {focused && picked >= 0 ? `${COUNTRIES[picked].name} selected.` : ''}
         </p>
       </Html>
+
+      {/* Flower beds at the corners, and the walk round the parterre. */}
+      {BEDS.map(([x, z], i) => (
+        <group key={i} position={[x, groundAt(d, x, z), z]}>
+          <mesh geometry={BED_HEDGE} position={[0, 0.25, 0]} material={GARDEN_HEDGE} />
+          <mesh geometry={BED_BLOOM} position={[0, 0.55, 0]} material={BLOOMS[i]} />
+        </group>
+      ))}
+      <mesh geometry={walk} material={RIBBON_MAT} receiveShadow />
 
       {/* Hedge frame, squared off to match the projection. */}
       <mesh geometry={HEDGE_LONG} position={[0, 0.36, -(MAP_D / 2 + 0.8)]} material={GARDEN_HEDGE} />
@@ -1223,6 +1245,14 @@ export function ScientificShores({ d, focused }: LandmarkProps) {
         <Lighthouse />
       </group>
 
+      {/* Rocks round the tide pool the terrain leaves on the beach. */}
+      {[0, 1, 2, 3, 4, 5].map((k) => {
+        const a = k * 1.05 + 0.3
+        const x = 3.5 + Math.cos(a) * 2.9
+        const z = 11 + Math.sin(a) * 2.9
+        return <mesh key={k} geometry={BOULDER} position={[x, groundAt(d, x, z) + 0.25, z]} rotation={[k, k * 0.6, 0]} scale={0.6 + (k % 3) * 0.2} material={mat.darkStone} />
+      })}
+
       {/* The subjects, along the beach. */}
       <mesh geometry={shore.walk} material={RIBBON_MAT} receiveShadow />
       <Exhibits
@@ -1441,6 +1471,26 @@ const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
   lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62),
 )
 
+/**
+ * The other species. A conifer crown is one lathe of three tiers; a birch is
+ * the broadleaf trunk slimmed with a smaller, paler crown; a palm comes from
+ * the kit. An arboretum is a collection of trees, and a collection of one
+ * kind is a plantation.
+ */
+const CONIFER_CROWN = (() => {
+  const p: THREE.Vector2[] = []
+  const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
+  at(0, 0)
+  at(1.35, 0)
+  at(0.85, 1.2)
+  at(1.1, 1.3)
+  at(0.6, 2.4)
+  at(0.8, 2.5)
+  at(0.3, 3.5)
+  at(0, 3.8)
+  return roughen(new THREE.LatheGeometry(p, 12), 0.04)
+})()
+
 export function ArtisticArboretum({ d, focused }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
   useFrame((_, dt) => {
@@ -1449,8 +1499,11 @@ export function ArtisticArboretum({ d, focused }: LandmarkProps) {
   })
 
   // Outside the galleries' ring, so they stand among trees rather than in a
-  // field of them.
-  const grove = useMemo(() => scatter(d, 20, 9.4, 12.2, 0xa27), [d])
+  // field of them. Four species, each scattered on its own seed.
+  const grove = useMemo(() => scatter(d, 22, 9.4, 12.6, 0xa27), [d])
+  const conifers = useMemo(() => scatter(d, 14, 9.0, 14.5, 0x3c1), [d])
+  const birches = useMemo(() => scatter(d, 12, 9.6, 14.0, 0x5e2), [d])
+  const palms = useMemo(() => scatter(d, 8, 11.0, 15.0, 0x7f3), [d])
   const galleries = useMemo(() => layoutGalleries(d), [d])
   const picked = useDistrictSelection(d.id)?.item ?? -1
   const pick = useCallback(
@@ -1518,6 +1571,36 @@ export function ArtisticArboretum({ d, focused }: LandmarkProps) {
           root flare meets the terrain instead of floating half-buried. */}
       <Instances geometry={TRUNK} material={mat.wood} limit={32}>
         {grove.map((t, i) => (
+          <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={TRUNK} material={mat.wood} limit={conifers.length}>
+        {conifers.map((t, i) => (
+          <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={[t.scale * 0.8, t.scale * 0.55, t.scale * 0.8]} />
+        ))}
+      </Instances>
+      <Instances geometry={CONIFER_CROWN} material={mat.leaf} limit={conifers.length}>
+        {conifers.map((t, i) => (
+          <Instance key={i} position={[t.position[0], t.position[1] + 1.3 * t.scale, t.position[2]]} rotation={[0, t.rotation, 0]} scale={t.scale * 1.15} />
+        ))}
+      </Instances>
+      <Instances geometry={TRUNK} material={mat.wood} limit={birches.length}>
+        {birches.map((t, i) => (
+          <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={[t.scale * 0.55, t.scale * 1.05, t.scale * 0.55]} />
+        ))}
+      </Instances>
+      <Instances geometry={CANOPIES[1]} material={mat.leafWarm} limit={birches.length}>
+        {birches.map((t, i) => (
+          <Instance key={i} position={[t.position[0], t.position[1] + 3.0 * t.scale, t.position[2]]} rotation={[0, t.rotation, 0]} scale={t.scale * 0.62} />
+        ))}
+      </Instances>
+      <Instances geometry={PALM_TRUNK} material={mat.wood} limit={palms.length}>
+        {palms.map((t, i) => (
+          <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
+        ))}
+      </Instances>
+      <Instances geometry={PALM_FRONDS} material={mat.leaf} limit={palms.length}>
+        {palms.map((t, i) => (
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>

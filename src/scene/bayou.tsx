@@ -127,7 +127,8 @@ export function BiologicalBayou({ d, focused }: LandmarkProps) {
       const r = 3.0 + Math.sin(t * Math.PI) * 4.0
       return { x: Math.cos(a) * r, z: Math.sin(a) * r, color: plank }
     })
-    return groundRibbon(d, line, 1.0)
+    // Held just above the water where it crosses a channel: planks on piles.
+    return groundRibbon(d, line, 1.0, -d.pad + 0.45)
   }, [d])
 
   const atlas = useMemo(() => makeLabelAtlas(LIFE.map((g) => g.name)), [])

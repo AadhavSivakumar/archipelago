@@ -4,7 +4,8 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { COSMOS } from '../content/cosmos'
 import { ExhibitHall, Exhibits, InstancedLabels, makeLabelAtlas, type Exhibit, type LabelPlacement } from './exhibits'
-import { ACCENT, DRESSED, groundAt, mat, METAL, std, type LandmarkProps } from './landmarkKit'
+import { Instance, Instances } from '@react-three/drei'
+import { ACCENT, DRESSED, groundAt, mat, METAL, PALM_FRONDS, PALM_TRUNK, std, type LandmarkProps } from './landmarkKit'
 import { select, useDistrictSelection } from '../state/selection'
 
 /**
@@ -78,7 +79,7 @@ const PLANET_COLOURS: Record<string, string> = {
 
 const GROUPS = COSMOS
 const PLANETS = GROUPS[0].items
-const RING_RADII = [5.7, 7.1, 8.7]
+const RING_RADII = [5.0, 6.2, 7.4]
 
 /** The orrery's items, in its own turning frame. */
 const PLANET_ITEMS: Exhibit[] = PLANETS.map((p, i) => {
@@ -110,8 +111,16 @@ function ring(d: { seaward: number }, k: number, kicker: (note?: string) => stri
   })
 }
 
+/** Palms on the sand beyond the rings, on the bearings the camera does not use. */
+const PALMS = Array.from({ length: 7 }, (_, i) => {
+  const a = 1.25 + 1.1 + (i / 7) * (Math.PI * 2 - 2.2)
+  const r = 9.0 + (i % 3) * 0.8
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r, s: 0.7 + (i % 3) * 0.12, rot: i * 1.7 }
+})
+
 export function CelestialCay({ d, focused }: LandmarkProps) {
   const orrery = useRef<THREE.Group>(null!)
+  const palms = useMemo(() => PALMS.map((p) => ({ ...p, y: groundAt(d, p.x, p.z) })), [d])
   useFrame((_, dt) => {
     if (!focused) orrery.current.rotation.y += dt * 0.12
   })
@@ -203,6 +212,17 @@ export function CelestialCay({ d, focused }: LandmarkProps) {
         </group>
       ))}
       <InstancedLabels atlas={headings} placements={headingLabels} fade={[60, 95]} />
+
+      <Instances geometry={PALM_TRUNK} material={mat.wood} limit={palms.length}>
+        {palms.map((p, i) => (
+          <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
+        ))}
+      </Instances>
+      <Instances geometry={PALM_FRONDS} material={mat.leaf} limit={palms.length}>
+        {palms.map((p, i) => (
+          <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
+        ))}
+      </Instances>
     </ExhibitHall>
   )
 }

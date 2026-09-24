@@ -43,7 +43,7 @@ const globeMaterial = (() => {
       }),
       // Fine and shallow: this is meant to read as a painted globe, so it
       // wants the tooth of the paint rather than a rock face.
-      { grain: 3.4, mottle: 0.12, bump: 0.1, rough: 0.12 },
+      { grain: 3.4, mottle: 0.12, bump: 0.25, rough: 0.12 },
     )
     return m
   }
@@ -51,15 +51,15 @@ const globeMaterial = (() => {
 
 const BRASS = weather(
   new THREE.MeshStandardMaterial({ color: '#9c7f3f', roughness: 0.36, metalness: 0.85 }),
-  { grain: 9, mottle: 0.07, bump: 0.14, rough: 0.24 },
+  { grain: 9, mottle: 0.06, bump: 0.1, rough: 0.22 },
 )
 const STONE = weather(
   new THREE.MeshStandardMaterial({ color: '#9d9a92', roughness: 0.88 }),
-  { grain: 5, mottle: 0.3, bump: 0.55, rough: 0.2 },
+  { grain: 5, mottle: 0.18, bump: 0.35, rough: 0.18 },
 )
 const MARBLE = weather(
   new THREE.MeshStandardMaterial({ color: '#dcd6cb', roughness: 0.42 }),
-  { grain: 7, mottle: 0.14, bump: 0.22, rough: 0.1 },
+  { grain: 7, mottle: 0.1, bump: 0.18, rough: 0.1 },
 )
 
 /** The armillary rings: a meridian, an equator, and a tilted ecliptic. */

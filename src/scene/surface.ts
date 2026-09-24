@@ -36,7 +36,11 @@ export type WeatherOptions = {
   grain?: number
   /** Albedo variation, as a fraction. 0.18 means ±9% brightness. */
   mottle?: number
-  /** Normal perturbation strength. 0 disables the bump entirely. */
+  /**
+   * Normal perturbation, as a slope: roughly how far the normal leans, in
+   * radians, over the relief's strongest features. Independent of grain.
+   * 0 disables the bump entirely.
+   */
   bump?: number
   /** Roughness variation, absolute. Added to roughnessFactor, then clamped. */
   rough?: number
@@ -49,11 +53,18 @@ export type WeatherOptions = {
   octaves?: number
 }
 
+/*
+  Gentler than they were. With the fine octaves filtered out by the footprint
+  fade, what is left of the grain at reading distance is its coarse variation,
+  and coarse variation at the old strengths read as blotches on stone and
+  dimples on metal. The strengths now describe how much a surface should
+  vary at the scale a visitor can actually see it vary.
+*/
 const DEFAULTS: Required<WeatherOptions> = {
   grain: 1.6,
-  mottle: 0.18,
-  bump: 0.5,
-  rough: 0.14,
+  mottle: 0.14,
+  bump: 0.3,
+  rough: 0.12,
   octaves: 4,
 }
 
@@ -88,25 +99,59 @@ float sfNoise(vec3 p) {
     f.z);
 }
 
-// Four octaves, normalised to [0,1]. The 2.03 lacunarity rather than a clean
-// 2.0 keeps successive octaves from aligning their lattices, which otherwise
-// leaves a faint grid visible along the axes.
-float sfFbm(vec3 p) {
-  float a = 0.5, s = 0.0, n = 0.0;
-  for (int i = 0; i < SF_OCTAVES; i++) {
-    s += a * sfNoise(p);
-    n += a;
-    p *= 2.03;
-    a *= 0.5;
-  }
-  return s / n;
-}
-
 uniform float uGrain;
 uniform float uMottle;
 uniform float uBump;
 uniform float uRough;
 uniform float uQuality;
+
+/*
+  Value-noise fbm, filtered per octave against the pixel footprint.
+
+  px is the world width of one pixel at this fragment, and f the octave's
+  frequency, so f * px is how much of one period a pixel covers. An octave
+  whose period is under about four pixels cannot be drawn as texture — it comes
+  out as speckle, and speckle crawls when the camera moves — so each octave
+  fades out as its period approaches that, and the loop stops at the first
+  that is gone. For most of the frame at the home view that is the second.
+  This is the mipmap of a procedural texture: far surfaces get the coarse
+  octaves only, and cheaply; near ones get all of them, and smoothly, because
+  the finest one drawn is always at least four pixels across.
+
+  Two sums come out. The grain weights the octaves at the usual half per step
+  and drives the colour and the roughness. The relief rolls them off harder
+  and drives the bump, because the bump is a derivative, and a
+  derivative weights each octave by its frequency — at half per step every
+  octave moved the normal about as much as the one before, so the finest few
+  made a surface sparkle rather than read as relief.
+
+  The fade is the coarsest octave's own weight: the strength the whole effect
+  is applied at, so that as the last octave goes, the effect goes with it
+  rather than snapping off. The 2.03 lacunarity rather than a clean 2.0 keeps
+  successive octaves from aligning their lattices, which otherwise leaves a
+  faint grid visible along the axes.
+*/
+void sfFbm(vec3 p, float px, out float grain, out float relief, out float fade) {
+  float a = 0.5, s = 0.0, n = 0.0;
+  float b = 0.5, sr = 0.0, nr = 0.0;
+  float f = uGrain;
+  fade = 1.0 - smoothstep(0.125, 0.25, f * px);
+  for (int i = 0; i < SF_OCTAVES; i++) {
+    float w = 1.0 - smoothstep(0.125, 0.25, f * px);
+    if (w <= 0.0) break;
+    float v = sfNoise(p);
+    s += a * w * v;
+    n += a * w;
+    sr += b * w * v;
+    nr += b * w;
+    p *= 2.03;
+    f *= 2.03;
+    a *= 0.5;
+    b *= 0.42;
+  }
+  grain = n > 0.0 ? s / n : 0.5;
+  relief = nr > 0.0 ? sr / nr : 0.5;
+}
 `
 
 /**
@@ -118,6 +163,9 @@ uniform float uQuality;
  * derivatives of a single sample, so it stays at one fbm. The cross products
  * project the screen-space slope back onto the surface tangent plane, which is
  * what makes it independent of viewing angle.
+ *
+ * The footprint fade that used to live here has moved into sfFbm, where it is
+ * applied per octave rather than to the whole effect at once.
  */
 const BUMP_GLSL = /* glsl */ `
 {
@@ -144,28 +192,10 @@ const BUMP_GLSL = /* glsl */ `
   vec3 sfViewPos = -vViewPosition;
   vec3 dpdx = dFdx(sfViewPos);
   vec3 dpdy = dFdy(sfViewPos);
-  float dhdx = dFdx(sfGrain);
-  float dhdy = dFdy(sfGrain);
-
-  /*
-    Fade the bump out once the noise stops being resolvable.
-
-    dpdx/dpdy are the world-space footprint of one pixel, so their length is
-    world units per pixel at this fragment. The finest of the four octaves has a
-    period of 1 / (grain * 2.03^3), and once that period falls below a couple of
-    pixels the perturbation is no longer texture — it is per-pixel noise, and on
-    a slowly turning camera it crawls. Distant terrain is where this bites: at
-    the home view the far mainland covers a few hundred metres of noise in a
-    hundred pixels.
-
-    Deriving the fade from the actual footprint rather than from a distance
-    threshold means it stays correct at every zoom level and on every screen
-    density, with no constant to retune when the camera changes.
-  */
-  float sfPx = max(length(dpdx), length(dpdy));
-
-  float sfFade = clamp(1.0 - sfPx * uGrain * 3.0, 0.0, 1.0);
-  diffuseColor.rgb = mix(sfBase, diffuseColor.rgb, sfFade);
+  // The derivatives of the relief — the low-persistence sum, not the grain —
+  // see sfFbm. The footprint fade is already folded into both.
+  float dhdx = dFdx(sfRelief);
+  float dhdy = dFdy(sfRelief);
 
   vec3 r1 = cross(dpdy, normal);
   vec3 r2 = cross(normal, dpdx);
@@ -175,7 +205,17 @@ const BUMP_GLSL = /* glsl */ `
   // surface — a silhouette edge, or a face seen exactly edge-on. Dividing
   // through it produces an enormous gradient and a black rim, so skip it.
   if (abs(det) > 1e-7) {
-    vec3 grad = (r1 * dhdx + r2 * dhdy) / det;
+    /*
+      Divided by the grain frequency, so that uBump is a slope: how far the
+      normal leans, in radians or near enough, at the strongest of the
+      relief — the same for a material grained at five cycles a unit as for
+      one at half a cycle. Without this the gradient of a finer noise was
+      simply larger, and a stone grained at five leaned its normals over a
+      radian, which is not relief but a crater field; it read as sparkle
+      only because the finest octaves scrambled it, and once those were
+      filtered it read as what it was.
+    */
+    vec3 grad = (r1 * dhdx + r2 * dhdy) / (det * uGrain);
     normal = normalize(normal - uBump * uQuality * sfFade * grad);
   }
 }
@@ -247,18 +287,27 @@ export function weather<M extends THREE.MeshStandardMaterial>(
           bump's derivatives of a constant are zero. The branch is on a
           uniform, so every fragment of the draw takes the same side and the
           GPU pays a compare — not the sixteen to thirty-two hashes it skips.
+
+          Inside it, the pixel footprint is measured first: the world width of
+          one pixel here, which is what decides how many octaves this fragment
+          can show. It is taken in world space, from the same position the
+          noise is sampled at, and only its length is used.
         */
         float sfGrain = 0.5;
-        if (uQuality > 0.0) sfGrain = sfFbm(vSurfPos * uGrain);
-        vec3 sfBase = diffuseColor.rgb;
-        diffuseColor.rgb *= 1.0 + (sfGrain - 0.5) * uMottle * uQuality;
+        float sfRelief = 0.5;
+        float sfFade = 0.0;
+        if (uQuality > 0.0) {
+          float sfPx = max(length(dFdx(vSurfPos)), length(dFdy(vSurfPos)));
+          sfFbm(vSurfPos * uGrain, sfPx, sfGrain, sfRelief, sfFade);
+        }
+        diffuseColor.rgb *= 1.0 + (sfGrain - 0.5) * uMottle * uQuality * sfFade;
         `,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `
         #include <roughnessmap_fragment>
-        roughnessFactor = clamp(roughnessFactor + (sfGrain - 0.5) * uRough * uQuality, 0.03, 1.0);
+        roughnessFactor = clamp(roughnessFactor + (sfGrain - 0.5) * uRough * uQuality * sfFade, 0.03, 1.0);
         `,
       )
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${BUMP_GLSL}`)

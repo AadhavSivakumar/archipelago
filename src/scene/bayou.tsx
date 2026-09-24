@@ -18,7 +18,7 @@ import { Tree, treeExtent, useTreePick } from './trees'
  */
 
 /** A bald cypress: a trunk that flares hard at the base, as swamp trees do. */
-const CYPRESS = (() => {
+const cypress = (segments: number) => {
   const p: THREE.Vector2[] = []
   const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
   at(0, 0)
@@ -29,9 +29,15 @@ const CYPRESS = (() => {
   at(0.18, 4.4)
   at(0.12, 5.6)
   at(0, 5.6)
-  return new THREE.LatheGeometry(p, 18)
-})()
-const CANOPY = [0x3b1, 0x7c2].map((seed) => lumpen(new THREE.SphereGeometry(1.15, 18, 12), seed, 0.7, 6))
+  return new THREE.LatheGeometry(p, segments)
+}
+// Coarse from the home view, fine when the district is looked at — see the
+// Arboretum's canopies for why.
+const CYPRESS = cypress(14)
+const CYPRESS_HI = cypress(36)
+const CANOPY_SEEDS = [0x3b1, 0x7c2]
+const CANOPY = CANOPY_SEEDS.map((seed) => lumpen(new THREE.SphereGeometry(1.15, 18, 12), seed, 0.7, 6))
+const CANOPY_HI = CANOPY_SEEDS.map((seed) => lumpen(new THREE.SphereGeometry(1.15, 34, 22), seed, 0.7, 6))
 /** A cypress knee: the root that stands up out of the water. */
 const KNEE = roughen(new THREE.ConeGeometry(0.22, 0.9, 7, 2), 0.05)
 
@@ -139,12 +145,12 @@ export function BiologicalBayou({ d, focused }: LandmarkProps) {
 
   return (
     <ExhibitHall focused={focused} onClear={() => pick.pickGroup(-1)}>
-      <Instances geometry={CYPRESS} material={mat.wood} limit={cypresses.length}>
+      <Instances geometry={focused ? CYPRESS_HI : CYPRESS} material={mat.wood} limit={cypresses.length}>
         {cypresses.map((t, i) => (
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>
-      {CANOPY.map((canopy, v) => (
+      {(focused ? CANOPY_HI : CANOPY).map((canopy, v) => (
         <Instances key={v} geometry={canopy} material={mat.leaf} limit={cypresses.length}>
           {cypresses
             .filter((_, i) => i % 2 === v)

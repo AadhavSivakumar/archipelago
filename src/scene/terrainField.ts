@@ -565,6 +565,103 @@ export type GridArrays = {
   index: Uint32Array
 }
 
+/** Two triangles per cell, wound counter-clockwise as seen from +Y. */
+function gridIndex(segX: number, segZ: number) {
+  const nx = segX + 1
+  // Uint32, not Uint16: 261k vertices is far past the 65,535 that a 16-bit
+  // index can address, and the overflow would be silent.
+  const index = new Uint32Array(segX * segZ * 6)
+  let t = 0
+  for (let iz = 0; iz < segZ; iz++) {
+    for (let ix = 0; ix < segX; ix++) {
+      const a = ix + nx * iz
+      const b = ix + nx * (iz + 1)
+      const c = ix + 1 + nx * (iz + 1)
+      const d = ix + 1 + nx * iz
+      index[t++] = a
+      index[t++] = b
+      index[t++] = d
+      index[t++] = b
+      index[t++] = c
+      index[t++] = d
+    }
+  }
+  return index
+}
+
+/** The world coordinate of a grid line, along one axis. */
+function gridLine(i: number, seg: number, gridHalf: number, worldHalf: number) {
+  return grade(-gridHalf + (i * (gridHalf * 2)) / seg, gridHalf, worldHalf)
+}
+
+/** grade() inverted, by Newton: the parameter a world coordinate came from. */
+function ungrade(world: number, gridHalf: number, worldHalf: number) {
+  const target = Math.abs(world) / gridHalf
+  const stretch = (worldHalf - gridHalf) / gridHalf
+  let s = Math.min(1, target)
+  for (let i = 0; i < 6; i++) {
+    const f = s + stretch * s * s * s - target
+    s -= f / (1 + 3 * stretch * s * s)
+  }
+  return Math.sign(world) * s * gridHalf
+}
+
+/**
+ * The height of the coarse DISPLAY MESH at a world XZ — not of the field, of
+ * the mesh: the display grid's own triangles, interpolated the way the GPU
+ * interpolates them, diagonal and all. A detail patch blends to this at its
+ * rim, so that where it meets the coarse island there is no step.
+ */
+export function coarseHeight(x: number, z: number, segX = GRID_X, segZ = GRID_Z) {
+  const fx = ((ungrade(x, GRID_HALF_X, WORLD_HALF_X) + GRID_HALF_X) / (GRID_HALF_X * 2)) * segX
+  const fz = ((ungrade(z, GRID_HALF_Z, WORLD_HALF_Z) + GRID_HALF_Z) / (GRID_HALF_Z * 2)) * segZ
+  const ix = Math.min(segX - 1, Math.max(0, Math.floor(fx)))
+  const iz = Math.min(segZ - 1, Math.max(0, Math.floor(fz)))
+  const u = fx - ix
+  const v = fz - iz
+  const at = (i: number, k: number) =>
+    sampleHeight(gridLine(i, segX, GRID_HALF_X, WORLD_HALF_X), gridLine(k, segZ, GRID_HALF_Z, WORLD_HALF_Z))
+  const ha = at(ix, iz)
+  const hb = at(ix, iz + 1)
+  const hc = at(ix + 1, iz + 1)
+  const hd = at(ix + 1, iz)
+  // The cell is split along b–d, as gridIndex winds it.
+  if (u + v <= 1) return ha + (hd - ha) * u + (hb - ha) * v
+  return hc + (hb - hc) * (1 - u) + (hd - hc) * (1 - v)
+}
+
+/**
+ * A dense square of terrain under one district, for when the camera is
+ * there.
+ *
+ * The display grid is graded: about half a unit between vertices at the
+ * middle of the archipelago and three units by the outer islands, which is
+ * fine from the home camera and faceted from forty units away. Rather than
+ * densify the whole world — four times the vertices for detail that is only
+ * ever wanted in one place at a time — the district being looked at gets a
+ * patch of its own at a quarter of a unit, and the coarse mesh is cut away
+ * beneath it. Over the outer `blend` units of the patch the heights ease
+ * from the field to the coarse mesh's own, so the join is seamless.
+ */
+export function buildPatchArrays(cx: number, cz: number, half: number, seg: number, blend: number): GridArrays {
+  const n = seg + 1
+  const positions = new Float32Array(n * n * 3)
+  let p = 0
+  for (let iz = 0; iz < n; iz++) {
+    const z = cz - half + (iz * half * 2) / seg
+    for (let ix = 0; ix < n; ix++) {
+      const x = cx - half + (ix * half * 2) / seg
+      let h = sampleHeight(x, z)
+      const edge = half - Math.max(Math.abs(x - cx), Math.abs(z - cz))
+      if (edge < blend) h += (coarseHeight(x, z) - h) * smoothstep(blend, 0, edge)
+      positions[p++] = x
+      positions[p++] = h
+      positions[p++] = z
+    }
+  }
+  return { positions, index: gridIndex(seg, seg) }
+}
+
 /** Positions (graded, height-sampled) and the triangle index. */
 export function buildGridArrays(segX: number, segZ: number): GridArrays {
   const nx = segX + 1
@@ -592,26 +689,7 @@ export function buildGridArrays(segX: number, segZ: number): GridArrays {
     }
   }
 
-  // Uint32, not Uint16: 261k vertices is far past the 65,535 that a 16-bit
-  // index can address, and the overflow would be silent.
-  const index = new Uint32Array(segX * segZ * 6)
-  let t = 0
-  for (let iz = 0; iz < segZ; iz++) {
-    for (let ix = 0; ix < segX; ix++) {
-      const a = ix + nx * iz
-      const b = ix + nx * (iz + 1)
-      const c = ix + 1 + nx * (iz + 1)
-      const d = ix + 1 + nx * iz
-      index[t++] = a
-      index[t++] = b
-      index[t++] = d
-      index[t++] = b
-      index[t++] = c
-      index[t++] = d
-    }
-  }
-
-  return { positions, index }
+  return { positions, index: gridIndex(segX, segZ) }
 }
 
 /**

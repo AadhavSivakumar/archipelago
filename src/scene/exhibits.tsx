@@ -460,10 +460,14 @@ export function makeLabelAtlas(texts: readonly string[], { cellWidth = 256 } = {
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.minFilter = THREE.LinearFilter
+  // Mipmapped, and this is the difference between a distant label and a
+  // distant speck: without the pyramid, a word twenty pixels wide is sampled
+  // from a two-hundred-pixel cell, and what survives is noise. WebGL2 builds
+  // the pyramid for a canvas of any size.
+  texture.minFilter = THREE.LinearMipmapLinearFilter
   texture.magFilter = THREE.LinearFilter
-  texture.generateMipmaps = false
-  texture.anisotropy = 4
+  texture.generateMipmaps = true
+  texture.anisotropy = 8
   texture.needsUpdate = true
   return { texture, cells, aspect: CELL_H / CELL_W }
 }

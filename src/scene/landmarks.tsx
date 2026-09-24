@@ -437,7 +437,7 @@ const PARALLEL = new THREE.BoxGeometry(MAP_W, 0.05, 0.026)
   supporting it. A graticule wants to be read when looked for and ignored
   otherwise, which means it has to be darker than the water, not lighter.
 */
-const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7, fog: false }, { grain: 20, mottle: 0.08, bump: 0.16, rough: 0.06 })
+const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7, fog: false }, { grain: 20, mottle: 0.08, bump: 0.15, rough: 0.06 })
 
 /*
   The Garden gets its own stone, hedge and brass, finer than the shared ones.
@@ -457,12 +457,12 @@ const GRATICULE_MAT = std({ color: '#2c4a60', roughness: 0.7, fog: false }, { gr
 */
 /* The kerb is part of the map — it is the frame around the projection — so it
    is exempt from the haze along with the face inside it. */
-const GARDEN_STONE = std({ color: '#9d9a92', roughness: 0.88, fog: false }, { grain: 18, mottle: 0.055, bump: 0.11, rough: 0.04 })
-const GARDEN_MARBLE = std({ color: '#dcd6cb', roughness: 0.42 }, { grain: 22, mottle: 0.04, bump: 0.07, rough: 0.03 })
+const GARDEN_STONE = std({ color: '#9d9a92', roughness: 0.88, fog: false }, { grain: 18, mottle: 0.055, bump: 0.2, rough: 0.04 })
+const GARDEN_MARBLE = std({ color: '#dcd6cb', roughness: 0.42 }, { grain: 22, mottle: 0.04, bump: 0.12, rough: 0.03 })
 /* The hedge keeps most of its grain: it is the one surface here that is
    supposed to look organic, and it sits outside the projection where it cannot
    compete with anything that carries information. */
-const GARDEN_HEDGE = std({ color: '#33603a', roughness: 0.94 }, { grain: 14, mottle: 0.15, bump: 0.28, rough: 0.08 })
+const GARDEN_HEDGE = std({ color: '#33603a', roughness: 0.94 }, { grain: 14, mottle: 0.15, bump: 0.35, rough: 0.08 })
 /* Effectively clean. The equator and prime meridian are 0.1 units wide, about
    eleven pixels from here, so ANY noise on them lands as glitter rather than as
    patina — there is no room across the bar for a second feature. */
@@ -482,7 +482,7 @@ const GARDEN_BRASS = std(
     rather than the environment's pixels.
   */
   { color: '#a5893f', roughness: 0.52, metalness: 0.45, fog: false },
-  { grain: 24, mottle: 0.02, bump: 0.03, rough: 0.02 },
+  { grain: 24, mottle: 0.02, bump: 0.06, rough: 0.02 },
 )
 const MERIDIANS = Array.from({ length: 11 }, (_, i) => (-180 + (i + 1) * 30) * MAP_SCALE)
 const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP_SCALE)
@@ -495,7 +495,7 @@ const PARALLELS = Array.from({ length: 5 }, (_, i) => (-90 + (i + 1) * 30) * MAP
 const BED_HEDGE = new THREE.BoxGeometry(2.2, 0.5, 2.2)
 const BED_BLOOM = new THREE.BoxGeometry(1.9, 0.14, 1.9)
 const BLOOMS = ['#e07a9a', '#f2cf6b', '#c9b6ff', '#f0b7a0'].map((color) =>
-  std({ color, roughness: 0.95 }, { grain: 12, mottle: 0.45, bump: 0.5, rough: 0.1 }),
+  std({ color, roughness: 0.95 }, { grain: 12, mottle: 0.45, bump: 0.4, rough: 0.1 }),
 )
 const BEDS = [
   [-(MAP_W / 2 - 2.0), -(MAP_D / 2 + 2.7)],
@@ -1460,16 +1460,18 @@ const CROWN_LOBES = [
   become sixty-six silhouettes with no extra draw call — one <Instances> per
   variant instead of one for all three, which is two extra calls total.
 */
-const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
-  /*
-    20x14 rather than 48x36. Sixty-six of these are drawn in the Arboretum, at
-    3,384 triangles each, so the grove alone was 222,000 — more than a tenth of
-    the whole scene, spent on smoothness in a shape whose entire point is that
-    it is lumpy. At 560 triangles the same displacement reads identically at the
-    distance a district view parks at, and the grove costs 37,000.
-  */
-  lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62),
-)
+/*
+  Two resolutions, and the district picks by whether it is being looked at.
+
+  From the home view sixty-six crowns at 20x14 read exactly like sixty-six at
+  36x24, and cost a sixth as much; from the district camera, forty units off,
+  the coarse ones show their facets. So the grove is drawn coarse until the
+  district is focused and fine while it is — the same displacement from the
+  same seeds, so the crowns keep their shapes across the swap.
+*/
+const CANOPY_SEEDS = [0x71c, 0x9e3, 0x2ab]
+const CANOPIES = CANOPY_SEEDS.map((seed) => lumpen(new THREE.SphereGeometry(1.45, 20, 14), seed, 0.62))
+const CANOPIES_HI = CANOPY_SEEDS.map((seed) => lumpen(new THREE.SphereGeometry(1.45, 36, 24), seed, 0.62))
 
 /**
  * The other species. A conifer crown is one lathe of three tiers; a birch is
@@ -1477,7 +1479,7 @@ const CANOPIES = [0x71c, 0x9e3, 0x2ab].map((seed) =>
  * the kit. An arboretum is a collection of trees, and a collection of one
  * kind is a plantation.
  */
-const CONIFER_CROWN = (() => {
+const conifer = (segments: number) => {
   const p: THREE.Vector2[] = []
   const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
   at(0, 0)
@@ -1488,8 +1490,10 @@ const CONIFER_CROWN = (() => {
   at(0.8, 2.5)
   at(0.3, 3.5)
   at(0, 3.8)
-  return roughen(new THREE.LatheGeometry(p, 12), 0.04)
-})()
+  return roughen(new THREE.LatheGeometry(p, segments), 0.04)
+}
+const CONIFER_CROWN = conifer(12)
+const CONIFER_CROWN_HI = conifer(28)
 
 export function ArtisticArboretum({ d, focused }: LandmarkProps) {
   const knot = useRef<THREE.Mesh>(null!)
@@ -1579,7 +1583,7 @@ export function ArtisticArboretum({ d, focused }: LandmarkProps) {
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={[t.scale * 0.8, t.scale * 0.55, t.scale * 0.8]} />
         ))}
       </Instances>
-      <Instances geometry={CONIFER_CROWN} material={mat.leaf} limit={conifers.length}>
+      <Instances geometry={focused ? CONIFER_CROWN_HI : CONIFER_CROWN} material={mat.leaf} limit={conifers.length}>
         {conifers.map((t, i) => (
           <Instance key={i} position={[t.position[0], t.position[1] + 1.3 * t.scale, t.position[2]]} rotation={[0, t.rotation, 0]} scale={t.scale * 1.15} />
         ))}
@@ -1589,7 +1593,7 @@ export function ArtisticArboretum({ d, focused }: LandmarkProps) {
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={[t.scale * 0.55, t.scale * 1.05, t.scale * 0.55]} />
         ))}
       </Instances>
-      <Instances geometry={CANOPIES[1]} material={mat.leafWarm} limit={birches.length}>
+      <Instances geometry={(focused ? CANOPIES_HI : CANOPIES)[1]} material={mat.leafWarm} limit={birches.length}>
         {birches.map((t, i) => (
           <Instance key={i} position={[t.position[0], t.position[1] + 3.0 * t.scale, t.position[2]]} rotation={[0, t.rotation, 0]} scale={t.scale * 0.62} />
         ))}
@@ -1599,12 +1603,12 @@ export function ArtisticArboretum({ d, focused }: LandmarkProps) {
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>
-      <Instances geometry={PALM_FRONDS} material={mat.leaf} limit={palms.length}>
+      <Instances geometry={PALM_FRONDS} material={mat.leafBoth} limit={palms.length}>
         {palms.map((t, i) => (
           <Instance key={i} position={t.position} rotation={[0, t.rotation, 0]} scale={t.scale} />
         ))}
       </Instances>
-      {CANOPIES.map((canopy, variant) => (
+      {(focused ? CANOPIES_HI : CANOPIES).map((canopy, variant) => (
       <Instances key={variant} geometry={canopy} material={mat.leaf} limit={32}>
         {grove.flatMap((t, i) =>
           CROWN_LOBES.filter((_, k) => k === variant).map((lobe) => {

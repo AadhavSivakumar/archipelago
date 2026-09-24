@@ -1,4 +1,4 @@
-import { buildGridArrays, shadeTerrain, type Palette } from './terrainField'
+import { buildGridArrays, buildPatchArrays, shadeTerrain, type Palette } from './terrainField'
 
 /**
  * Builds the terrain off the main thread.
@@ -11,7 +11,10 @@ import { buildGridArrays, shadeTerrain, type Palette } from './terrainField'
  * the copy here becomes detached, which is what keeps a ~13MB handover from
  * costing another memcpy on both sides.
  */
-export type TerrainRequest = { segX: number; segZ: number; palette: Palette }
+export type TerrainRequest =
+  | { kind: 'grid'; segX: number; segZ: number; palette: Palette }
+  /** A dense square under one district — see buildPatchArrays. */
+  | { kind: 'patch'; cx: number; cz: number; half: number; seg: number; blend: number; palette: Palette }
 
 export type TerrainResponse = {
   positions: Float32Array
@@ -21,10 +24,13 @@ export type TerrainResponse = {
 }
 
 self.onmessage = (event: MessageEvent<TerrainRequest>) => {
-  const { segX, segZ, palette } = event.data
+  const request = event.data
 
-  const { positions, index } = buildGridArrays(segX, segZ)
-  const { normals, colors } = shadeTerrain(positions, index, palette)
+  const { positions, index } =
+    request.kind === 'patch'
+      ? buildPatchArrays(request.cx, request.cz, request.half, request.seg, request.blend)
+      : buildGridArrays(request.segX, request.segZ)
+  const { normals, colors } = shadeTerrain(positions, index, request.palette)
 
   const payload: TerrainResponse = { positions, normals, colors, index }
 

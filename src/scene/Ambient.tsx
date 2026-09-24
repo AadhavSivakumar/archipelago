@@ -200,11 +200,11 @@ const SAIL = new THREE.BoxGeometry(0.08, 2.0, 1.5)
 */
 const HULL_MATERIAL = weather(
   new THREE.MeshStandardMaterial({ color: '#5e4229', roughness: 0.88 }),
-  { grain: 12, mottle: 0.3, bump: 0.5, rough: 0.16 },
+  { grain: 12, mottle: 0.3, bump: 0.3, rough: 0.16 },
 )
 const SAIL_MATERIAL = weather(
   new THREE.MeshStandardMaterial({ color: '#ded4c4', roughness: 0.92 }),
-  { grain: 16, mottle: 0.18, bump: 0.55, rough: 0.1 },
+  { grain: 16, mottle: 0.18, bump: 0.3, rough: 0.1 },
 )
 
 /*

@@ -33,7 +33,7 @@ const PLINTH = (() => {
 })()
 const ORRERY_Y = 2.6
 const SPHERE = new THREE.SphereGeometry(1, 28, 18)
-const BODY_MAT = std({ color: '#ffffff', roughness: 0.55, metalness: 0.05 }, { grain: 8, mottle: 0.12, bump: 0.12, rough: 0.1 })
+const BODY_MAT = std({ color: '#ffffff', roughness: 0.55, metalness: 0.05 }, { grain: 8, mottle: 0.12, bump: 0.15, rough: 0.1 })
 const GLOW_MAT = new THREE.MeshBasicMaterial({ color: '#ffd77a', transparent: true, opacity: 0.35, depthWrite: false, toneMapped: false })
 const RING_MAT = std({ color: '#9c7f3f', roughness: 0.38, metalness: 0.82 }, METAL)
 const SATURN_RING = new THREE.RingGeometry(0.5, 0.85, 48)
@@ -218,7 +218,7 @@ export function CelestialCay({ d, focused }: LandmarkProps) {
           <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
         ))}
       </Instances>
-      <Instances geometry={PALM_FRONDS} material={mat.leaf} limit={palms.length}>
+      <Instances geometry={PALM_FRONDS} material={mat.leafBoth} limit={palms.length}>
         {palms.map((p, i) => (
           <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
         ))}

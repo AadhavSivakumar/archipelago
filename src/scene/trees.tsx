@@ -20,8 +20,8 @@ import { publishView, select, useDistrictSelection } from '../state/selection'
 export type TreeGroup = { id: string; name: string; article: string; color: string }
 
 /** One figure of a family tree. */
-const ORB = new THREE.SphereGeometry(0.3, 24, 16)
-const ORB_MAT = std({ color: '#ffffff', roughness: 0.32, metalness: 0.25 }, { grain: 8, mottle: 0.05, bump: 0.08, rough: 0.1 })
+const ORB = new THREE.SphereGeometry(0.3, 40, 28)
+const ORB_MAT = std({ color: '#ffffff', roughness: 0.32, metalness: 0.25 }, { grain: 8, mottle: 0.05, bump: 0.1, rough: 0.1 })
 /** Lines of descent. */
 const LINEAGE_MAT = new THREE.LineBasicMaterial({ color: '#f2cf6b', transparent: true, opacity: 0.7 })
 

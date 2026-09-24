@@ -1,13 +1,18 @@
-import { use, useMemo, useRef, type RefObject } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { use, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EASE, gsap, REDUCED_MOTION, useGSAP } from '../animations/gsap'
 import {
   islandGeometry,
   islandLodGeometry,
   islandOccluderGeometry,
+  ISLAND_DEPTH_MATERIAL,
+  ISLAND_DETAIL_MATERIAL,
   ISLAND_LOD_MATERIAL,
   ISLAND_MATERIAL,
+  PATCH_HOLE,
+  patchGeometry,
+  uHole,
 } from './terrain'
 import { DISTRICTS, districtCentre, type DistrictId } from './districts'
 import { setCursor } from './cursor'
@@ -64,6 +69,56 @@ type IslandProps = {
    * `stripped`.
    */
   hidden: boolean
+  /**
+   * The district to lay dense ground under, if any: the one the camera is
+   * down at. Null from the home view, where nothing is near enough to need
+   * it, and on the map, where the land is not the subject.
+   */
+  detail: DistrictId | null
+}
+
+/** A triangle nobody will ever see, so the patch's program is compiled at startup. */
+const PRELOAD_TRI = new THREE.BufferGeometry().setAttribute(
+  'position',
+  new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0.01, 0, 0, 0, 0, 0.01]), 3),
+)
+
+/**
+ * Dense ground under one district — see patchGeometry. Built on a worker
+ * when the district is focused, so it arrives a beat into the flight rather
+ * than stalling it; kept once built; and while it is in place, the coarse
+ * mesh is cut away beneath it.
+ */
+function DetailPatch({ id }: { id: DistrictId }) {
+  const d = DISTRICTS.find((x) => x.id === id)!
+  const gl = useThree((s) => s.gl)
+  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null)
+
+  useEffect(() => {
+    let live = true
+    setGeometry(null)
+    patchGeometry(id, d.x, d.z).then((built) => {
+      if (live) setGeometry(built)
+    })
+    return () => {
+      live = false
+    }
+  }, [id, d])
+
+  useEffect(() => {
+    if (!geometry) return
+    uHole.value.set(d.x, d.z, PATCH_HOLE, 1)
+    // The shadow map is frozen once the reveal settles; one more pass, so
+    // the fine ground casts and receives what the coarse one did.
+    gl.shadowMap.needsUpdate = true
+    return () => {
+      uHole.value.w = 0
+      gl.shadowMap.needsUpdate = true
+    }
+  }, [geometry, d, gl])
+
+  if (!geometry) return null
+  return <mesh geometry={geometry} material={ISLAND_DETAIL_MATERIAL} receiveShadow castShadow />
 }
 
 /**
@@ -75,7 +130,7 @@ type IslandProps = {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden, detail }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -124,10 +179,16 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden }: I
       <mesh
         geometry={geometry}
         material={ISLAND_MATERIAL}
+        customDepthMaterial={ISLAND_DEPTH_MATERIAL}
         visible={!lowDetail && !hidden}
         receiveShadow
         castShadow
       />
+      {detail && !lowDetail && !hidden && <DetailPatch id={detail} />}
+      {/* Present from the start so <Preload all> compiles the patch's program
+          during the boot screen rather than mid-flight, the first time one is
+          drawn. Two hundred units under the sea. */}
+      <mesh geometry={PRELOAD_TRI} material={ISLAND_DETAIL_MATERIAL} position={[0, -200, 0]} />
       {/*
         Mounted always, drawn only on the map. If this mesh only existed once
         the camera had arrived, its program would compile and its 47k vertices

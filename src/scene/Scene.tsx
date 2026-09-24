@@ -682,6 +682,10 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
           onPick={onFocus}
           lowDetail={mapDetail || tier >= 1}
           hidden={stripped}
+          // Dense ground under the district being looked at. Not on the map,
+          // where the land is scenery, and not at a quality tier that has
+          // already swapped to the coarse island.
+          detail={focus && focus !== 'geography' && !stripped && !mapDetail && tier < 1 ? focus : null}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does

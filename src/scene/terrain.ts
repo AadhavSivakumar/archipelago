@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { weather } from './surface'
 import { uTime, WAVE_GLSL } from '../shaders/water'
 import { DISTRICTS } from './districts'
-import { buildGridArrays, GRID_X, GRID_Z, shadeTerrain, type Palette } from './terrainField'
+import { buildGridArrays, buildPatchArrays, GRID_X, GRID_Z, shadeTerrain, type Palette } from './terrainField'
+import type { TerrainRequest } from './terrain.worker'
 
 // Re-exported so the rest of the scene keeps importing the height field from
 // here — splitting the file is an implementation detail of the worker.
@@ -188,10 +189,91 @@ export function islandGeometry(): Promise<THREE.BufferGeometry> {
     worker.onerror = fallBackToMainThread
     worker.onmessageerror = fallBackToMainThread
 
-    worker.postMessage({ segX: GRID_X, segZ: GRID_Z, palette: PALETTE })
+    const request: TerrainRequest = { kind: 'grid', segX: GRID_X, segZ: GRID_Z, palette: PALETTE }
+    worker.postMessage(request)
   })
 
   return pending
+}
+
+// ---------------------------------------------------------------------------
+// The detail patch
+// ---------------------------------------------------------------------------
+
+/** Half-width of the square of dense ground under a focused district. */
+export const PATCH_HALF = 34
+/** Just over a quarter of a unit between vertices: 58k of them, 115k
+    triangles, about three hundred milliseconds on a worker. */
+const PATCH_SEG = 240
+/** The rim over which the patch eases to the coarse mesh's own heights. */
+const PATCH_BLEND = 5
+/**
+ * Half-width of the hole cut in the coarse mesh under the patch: inside the
+ * rim, so the coarse mesh is gone everywhere the patch is still the field,
+ * and the two overlap only where the patch has begun to match it.
+ */
+export const PATCH_HOLE = PATCH_HALF - PATCH_BLEND + 1
+
+/**
+ * Where the coarse mesh is cut away: x, z, half-width, and whether at all.
+ * Written by the Island when a patch is in place; read by the island's colour
+ * and depth shaders alike, so the shadow pass has the same hole and the coarse
+ * ground under the patch cannot shadow it.
+ */
+export const uHole = { value: new THREE.Vector4(0, 0, 0, 0) }
+
+const patches = new Map<string, Promise<THREE.BufferGeometry>>()
+
+/**
+ * The dense ground under a district, built on a worker and kept.
+ *
+ * Kept, up to three: coming back to a district should not cost the build
+ * again, and three is enough for the pair the visitor is moving between plus
+ * the one before. The oldest is let go when a fourth arrives.
+ */
+export function patchGeometry(key: string, cx: number, cz: number): Promise<THREE.BufferGeometry> {
+  const cached = patches.get(key)
+  if (cached) return cached
+
+  const built = new Promise<THREE.BufferGeometry>((resolve) => {
+    const started = performance.now()
+    let worker: Worker
+    try {
+      worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' })
+    } catch (reason) {
+      console.warn('Terrain worker unavailable for the detail patch:', reason)
+      const { positions, index } = buildPatchArraysSync(cx, cz)
+      const { normals, colors } = shadeTerrain(positions, index, PALETTE)
+      resolve(assemble({ positions, normals, colors, index }))
+      return
+    }
+    worker.onmessage = (event: MessageEvent<TerrainArrays>) => {
+      worker.terminate()
+      console.info(`[archipelago] detail patch ${key} built in ${(performance.now() - started).toFixed(0)}ms`)
+      resolve(assemble(event.data))
+    }
+    worker.onerror = (reason) => {
+      console.warn('Terrain worker failed for the detail patch:', reason)
+      worker.terminate()
+      const { positions, index } = buildPatchArraysSync(cx, cz)
+      const { normals, colors } = shadeTerrain(positions, index, PALETTE)
+      resolve(assemble({ positions, normals, colors, index }))
+    }
+    const request: TerrainRequest = { kind: 'patch', cx, cz, half: PATCH_HALF, seg: PATCH_SEG, blend: PATCH_BLEND, palette: PALETTE }
+    worker.postMessage(request)
+  })
+
+  patches.set(key, built)
+  if (patches.size > 3) {
+    const oldest = patches.keys().next().value!
+    patches.get(oldest)!.then((geometry) => geometry.dispose())
+    patches.delete(oldest)
+  }
+  return built
+}
+
+function buildPatchArraysSync(cx: number, cz: number) {
+  return buildPatchArrays(cx, cz, PATCH_HALF, PATCH_SEG, PATCH_BLEND)
 }
 
 /**
@@ -239,15 +321,17 @@ export function islandOccluderGeometry() {
   return occluderBuilt
 }
 
-/* Weathered at a scale the vertex grid cannot reach — see the note by the
-   weather() call further down, which has to run after the foam patch below. */
-export const ISLAND_MATERIAL = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.95,
-  metalness: 0,
-})
+/** The hole in the coarse mesh, as GLSL: a square, in the island's own XZ. */
+const HOLE_GLSL = /* glsl */ `
+  if (uHole.w > 0.5 && max(abs(vLocalPos.x - uHole.x), abs(vLocalPos.z - uHole.y)) < uHole.z) discard;
+`
 
 /**
+ * The island's material, made twice: once for the coarse mesh, which has a
+ * hole cut in it wherever a detail patch sits, and once for the patch itself,
+ * which has none but is pulled a hair toward the camera so that in the rim
+ * where the two overlap it is the patch that shows.
+ *
  * Foam along the waterline.
  *
  * The land/sea seam is the island's entire silhouette, and it was the one place
@@ -261,17 +345,28 @@ export const ISLAND_MATERIAL = new THREE.MeshStandardMaterial({
  * 0.02 -> 1 during the reveal, so world Y is only the terrain height once that
  * has finished; `position.y` is the real height from the first frame.
  */
-ISLAND_MATERIAL.onBeforeCompile = (shader) => {
-  shader.uniforms.uTime = uTime
+function islandMaterial(withHole: boolean) {
+  const material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.95,
+    metalness: 0,
+  })
 
-  shader.vertexShader = `varying vec3 vLocalPos;\n${shader.vertexShader}`.replace(
-    '#include <begin_vertex>',
-    '#include <begin_vertex>\n  vLocalPos = position;',
-  )
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime
+    if (withHole) shader.uniforms.uHole = uHole
 
-  shader.fragmentShader = `uniform float uTime;\nvarying vec3 vLocalPos;\n${WAVE_GLSL}\n${shader.fragmentShader}`.replace(
-    '#include <color_fragment>',
-    /* glsl */ `
+    shader.vertexShader = `varying vec3 vLocalPos;\n${shader.vertexShader}`.replace(
+      '#include <begin_vertex>',
+      '#include <begin_vertex>\n  vLocalPos = position;',
+    )
+
+    shader.fragmentShader = `uniform float uTime;\n${withHole ? 'uniform vec4 uHole;\n' : ''}varying vec3 vLocalPos;\n${WAVE_GLSL}\n${shader.fragmentShader}`
+      // First thing in main, so a discarded fragment costs nothing more.
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>${withHole ? HOLE_GLSL : ''}`)
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `
       #include <color_fragment>
       float surface = waveHeight(vLocalPos.xz, uTime);
       /*
@@ -291,36 +386,58 @@ ISLAND_MATERIAL.onBeforeCompile = (shader) => {
       // what made them read as moulded plastic.
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.90, 0.92), foam * 0.34);
     `,
-  )
+      )
+  }
+
+  /*
+    Grain below the reach of the vertex grid.
+
+    Even a quarter of a unit is a long way above the scale at which a surface
+    stops looking like a surface, and there is no way to close that with
+    geometry. Everything finer than a quad has to come from the shader, and
+    this is where it comes from.
+
+    Applied here rather than at the declaration on purpose: weather() chains
+    onto whatever onBeforeCompile a material is carrying when it is called,
+    and the foam patch is installed by plain assignment. Weathering first
+    would have the foam assignment overwrite it outright, silently, with the
+    only symptom being terrain that stays smooth.
+
+    Four octaves now, where it was three: the per-octave footprint fade in
+    surface.ts means the fourth costs only the fragments close enough to
+    resolve it, which is the detail patch under the camera and nothing else.
+  */
+  weather(material, { grain: 0.85, mottle: 0.24, bump: 0.65, rough: 0.16, octaves: 4 })
+  // Different source, so never the same compiled program.
+  material.customProgramCacheKey = () => `island-${withHole ? 'coarse' : 'patch'}`
+  return material
 }
 
-/*
-  Grain below the reach of the vertex grid.
+export const ISLAND_MATERIAL = islandMaterial(true)
 
-  The grid is 452x576, and it is graded rather than uniform: the parameter
-  range is +/-90 by +/-115 and grade() expands it cubically out to +/-600 by
-  +/-900. So the quads are about 0.4 units at the centre of the archipelago,
-  roughly 0.75 at the edge of a district island, and 1.7 by the time the
-  mainland is 80 units out — fine near the camera, and coarser exactly where
-  the fog is already taking it.
+export const ISLAND_DETAIL_MATERIAL = islandMaterial(false)
+ISLAND_DETAIL_MATERIAL.polygonOffset = true
+ISLAND_DETAIL_MATERIAL.polygonOffsetFactor = -1
+ISLAND_DETAIL_MATERIAL.polygonOffsetUnits = -2
 
-  Even 0.4 units is a long way above the scale at which a surface stops looking
-  like a surface, and there is no way to close that with geometry: halving the
-  quad quadruples a mesh that already takes 390ms to build. Everything finer
-  than a quad has to come from the shader, and this is where it comes from.
-
-  Applied here rather than at the declaration above on purpose: weather()
-  chains onto whatever onBeforeCompile a material is carrying when it is
-  called, and the foam patch is installed by plain assignment. Weathering first
-  would have the foam assignment overwrite it outright, silently, with the only
-  symptom being terrain that stays smooth.
-*/
-/*
-  Three octaves rather than four, and only here. The island is the one surface
-  that covers most of the frame in every view, so its fragment shader is the
-  one whose cost is multiplied by the most pixels. The fourth octave is the one
-  at a period of about a tenth of a unit — a quarter of a pixel from the home
-  camera, and faded to nothing there by the footprint fade anyway. It was being
-  computed and thrown away.
-*/
-weather(ISLAND_MATERIAL, { grain: 0.85, mottle: 0.3, bump: 0.85, rough: 0.16, octaves: 3 })
+/**
+ * The coarse mesh's depth, for the shadow pass, with the same hole.
+ *
+ * Without it the coarse ground under a patch would still be in the shadow
+ * map, and wherever it lay a hair above the patch's surface — which, being
+ * a coarser sampling of the same field, it does half the time — the patch
+ * would be in its shadow: a mottle of dark splotches that is not there.
+ */
+export const ISLAND_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
+ISLAND_DEPTH_MATERIAL.onBeforeCompile = (shader) => {
+  shader.uniforms.uHole = uHole
+  shader.vertexShader = `varying vec3 vLocalPos;\n${shader.vertexShader}`.replace(
+    '#include <begin_vertex>',
+    '#include <begin_vertex>\n  vLocalPos = position;',
+  )
+  shader.fragmentShader = `uniform vec4 uHole;\nvarying vec3 vLocalPos;\n${shader.fragmentShader}`.replace(
+    '#include <clipping_planes_fragment>',
+    `#include <clipping_planes_fragment>${HOLE_GLSL}`,
+  )
+}
+ISLAND_DEPTH_MATERIAL.customProgramCacheKey = () => 'island-depth-hole'

@@ -90,7 +90,7 @@ export function LinguisticLagoon({ d, focused }: LandmarkProps) {
           <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
         ))}
       </Instances>
-      <Instances geometry={PALM_FRONDS} material={mat.leaf} limit={palms.length}>
+      <Instances geometry={PALM_FRONDS} material={mat.leafBoth} limit={palms.length}>
         {palms.map((p, i) => (
           <Instance key={i} position={[p.x, p.y, p.z]} rotation={[0, p.rot, 0]} scale={p.s} />
         ))}

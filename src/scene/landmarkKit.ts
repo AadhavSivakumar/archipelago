@@ -35,14 +35,14 @@ export const std = (p: THREE.MeshStandardMaterialParameters, w: WeatherOptions =
   weather(new THREE.MeshStandardMaterial(p), w)
 
 /** Cut stone: pitted, matte, and never quite one colour across a face. */
-export const QUARRIED: WeatherOptions = { grain: 5, mottle: 0.3, bump: 0.55, rough: 0.2 }
+export const QUARRIED: WeatherOptions = { grain: 5, mottle: 0.18, bump: 0.35, rough: 0.18 }
 /** Dressed or polished stone: the same rock, worked smooth. */
-export const DRESSED: WeatherOptions = { grain: 7, mottle: 0.14, bump: 0.22, rough: 0.1 }
+export const DRESSED: WeatherOptions = { grain: 7, mottle: 0.1, bump: 0.18, rough: 0.1 }
 /** Metal: almost no albedo variation, but roughness variation is what stops a
     metal reading as a mirrored blob, so that one stays up. */
-export const METAL: WeatherOptions = { grain: 9, mottle: 0.07, bump: 0.14, rough: 0.24 }
+export const METAL: WeatherOptions = { grain: 9, mottle: 0.06, bump: 0.1, rough: 0.22 }
 /** Foliage: broad, strong colour variation, no micro-bump worth the cost. */
-export const FOLIAGE: WeatherOptions = { grain: 1.5, mottle: 0.46, bump: 0.3, rough: 0.12 }
+export const FOLIAGE: WeatherOptions = { grain: 1.5, mottle: 0.46, bump: 0.4, rough: 0.12 }
 
 export const mat = {
   marble: std({ color: '#dcd6cb', roughness: 0.42 }, DRESSED),
@@ -55,16 +55,18 @@ export const mat = {
   brass: std({ color: '#9c7f3f', roughness: 0.38, metalness: 0.82 }, METAL),
   steel: std({ color: '#a7b0ba', roughness: 0.32, metalness: 0.88 }, METAL),
   dark: std({ color: '#33373e', roughness: 0.6, metalness: 0.25 }, DRESSED),
-  wood: std({ color: '#6b4a2e', roughness: 0.88 }, { grain: 9, mottle: 0.3, bump: 0.42, rough: 0.16 }),
+  wood: std({ color: '#6b4a2e', roughness: 0.88 }, { grain: 9, mottle: 0.3, bump: 0.3, rough: 0.16 }),
   leaf: std({ color: '#3c6d41', roughness: 0.85 }, FOLIAGE),
   leafWarm: std({ color: '#63883c', roughness: 0.85 }, FOLIAGE),
+  /** For fronds and other leaves seen from both faces. */
+  leafBoth: std({ color: '#3c6d41', roughness: 0.85, side: THREE.DoubleSide }, FOLIAGE),
   hedge: std({ color: '#33603a', roughness: 0.94 }, { ...FOLIAGE, grain: 3.2 }),
   // Glass gets nothing: grain on a transparent surface reads as grime, and
   // these are the one thing in the scene that should look manufactured.
   glass: std({ color: '#a8dcff', roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.6 }, { mottle: 0, bump: 0, rough: 0 }),
-  snow: std({ color: '#e8eef6', roughness: 0.78 }, { grain: 2.4, mottle: 0.1, bump: 0.5, rough: 0.1 }),
+  snow: std({ color: '#e8eef6', roughness: 0.78 }, { grain: 2.4, mottle: 0.1, bump: 0.4, rough: 0.1 }),
   ember: std({ color: '#b8492f', roughness: 0.62 }, DRESSED),
-  canvasCloth: std({ color: '#ded4c4', roughness: 0.92 }, { grain: 14, mottle: 0.16, bump: 0.5, rough: 0.1 }),
+  canvasCloth: std({ color: '#ded4c4', roughness: 0.92 }, { grain: 14, mottle: 0.16, bump: 0.3, rough: 0.1 }),
 }
 
 /** One emissive accent material per district, keyed off the palette in districts.ts. */
@@ -88,9 +90,9 @@ export const ACCENT = Object.fromEntries(
         emissive: new THREE.Color(d.accent),
         emissiveIntensity: 0.2,
       },
-      // Slightly more tooth than plain METAL: these are the largest smooth
-      // surfaces in the scene, and they have the least to hide behind.
-      { grain: 6, mottle: 0.12, bump: 0.3, rough: 0.2 },
+      // Broad and shallow: these are the largest smooth surfaces in the
+      // scene, and at any more than this the dome reads as hammered.
+      { grain: 4, mottle: 0.07, bump: 0.1, rough: 0.16 },
     ),
   ]),
 ) as Record<DistrictId, THREE.MeshStandardMaterial>
@@ -339,7 +341,7 @@ export function groundRibbon(
 /** The material every ribbon shares: its colour comes from its vertices. */
 export const RIBBON_MAT = std(
   { color: '#ffffff', vertexColors: true, roughness: 0.94, side: THREE.DoubleSide },
-  { grain: 9, mottle: 0.14, bump: 0.22, rough: 0.08 },
+  { grain: 9, mottle: 0.14, bump: 0.25, rough: 0.08 },
 )
 
 /**
@@ -381,32 +383,57 @@ export function findShore(d: District, dirX: number, dirZ: number, from: number,
 export const BOULDER = roughen(new THREE.IcosahedronGeometry(0.55, 2), 0.2)
 
 /**
- * A palm: the trunk, and the crown of fronds as one geometry.
+ * A palm: the trunk, and the crown of fronds as one geometry each.
  *
- * The trunk is a lathe that leans nowhere, because every palm here is set
- * with its own rotation and scale, and the eye reads the variety from those.
- * The fronds are eight thin boxes hinged at the trunk's top and drooping,
- * alternately more and less, which is the whole silhouette of a palm.
+ * The trunk is a lathe bent into a lean — a palm that stands plumb reads as
+ * a post — and every palm is set with its own rotation and scale, so the
+ * eye reads the variety from those. The fronds are ribbons: each a strip
+ * bent along a parabola that lifts from the crown and droops to its tip,
+ * tapering as it goes and folded a little along its midrib, which is the
+ * whole silhouette of a palm. Nine of them, at uneven angles.
  */
+const PALM_LEAN = 0.045
+const PALM_HEIGHT = 4.3
+export const PALM_TOP: [number, number, number] = [PALM_LEAN * PALM_HEIGHT * PALM_HEIGHT, PALM_HEIGHT, 0]
 export const PALM_TRUNK = (() => {
   const p: THREE.Vector2[] = []
   const at = (r: number, y: number) => p.push(new THREE.Vector2(r, y))
   at(0, 0)
   at(0.26, 0)
-  at(0.21, 1.4)
-  at(0.18, 2.9)
-  at(0.15, 4.3)
-  at(0, 4.3)
-  return new THREE.LatheGeometry(p, 10)
+  at(0.23, 0.9)
+  at(0.21, 1.8)
+  at(0.19, 2.7)
+  at(0.16, 3.5)
+  at(0.15, PALM_HEIGHT)
+  at(0, PALM_HEIGHT)
+  const geo = new THREE.LatheGeometry(p, 14)
+  const pos = geo.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i)
+    pos.setX(i, pos.getX(i) + PALM_LEAN * y * y)
+  }
+  pos.needsUpdate = true
+  geo.computeVertexNormals()
+  return geo
 })()
 export const PALM_FRONDS = (() => {
   const parts: THREE.BufferGeometry[] = []
-  for (let i = 0; i < 8; i++) {
-    const frond = new THREE.BoxGeometry(0.3, 0.05, 2.4)
-    frond.translate(0, 0, 1.1)
-    frond.rotateX(0.5 + (i % 2) * 0.25)
-    frond.rotateY((i / 8) * Math.PI * 2 + (i % 3) * 0.1)
-    frond.translate(0, 4.3, 0)
+  for (let i = 0; i < 9; i++) {
+    const frond = new THREE.PlaneGeometry(0.46, 1, 2, 12)
+    const pos = frond.attributes.position as THREE.BufferAttribute
+    for (let k = 0; k < pos.count; k++) {
+      // The plane runs -0.5..0.5 along y; t is the distance out along the frond.
+      const t = pos.getY(k) + 0.5
+      const across = pos.getX(k)
+      const halfWidth = 0.23 * (1 - t * 0.7)
+      const x = (across / 0.23) * halfWidth
+      pos.setX(k, x)
+      pos.setY(k, 0.55 * t - 1.75 * t * t - 0.1 * Math.abs(x) / 0.23)
+      pos.setZ(k, 2.7 * t)
+    }
+    frond.rotateY((i / 9) * Math.PI * 2 + (i % 3) * 0.13)
+    frond.translate(PALM_TOP[0], PALM_TOP[1] - 0.05, PALM_TOP[2])
+    frond.computeVertexNormals()
     parts.push(frond)
   }
   return mergeGeometries(parts)!

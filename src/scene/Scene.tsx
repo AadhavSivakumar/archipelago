@@ -20,6 +20,7 @@ import type { DistrictId } from './districts'
 import { useView } from '../state/selection'
 import { QUALITY_FOR_TIER, uQuality, type QualityTier } from './quality'
 import { telemetry } from './telemetry'
+import { sampleHeight } from './terrain'
 
 /**
  * Shared by the sky shader and the shadow-casting sun so they agree.
@@ -478,6 +479,16 @@ function QualityGovernor({ flying, onTier }: { flying: boolean; onTier: (tier: Q
 function Telemetry() {
   const gl = useThree((s) => s.gl)
   const size = useThree((s) => s.size)
+  const camera = useThree((s) => s.camera)
+  const controls = useThree((s) => s.controls)
+
+  // With ?debug, the camera, the controls and the height field are reachable
+  // from the console and from the render rig, which records flight paths
+  // against the ground to find where a flight jumps or dips.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('debug')) return
+    ;(window as unknown as { __archi: unknown }).__archi = { camera, controls, sampleHeight, gl, gsap }
+  }, [camera, controls, gl])
 
   useEffect(() => {
     const ctx = gl.getContext()
@@ -686,6 +697,7 @@ export function Scene({ focus, onFocus, onImmersive, forceWorld }: Props) {
           // where the land is scenery, and not at a quality tier that has
           // already swapped to the coarse island.
           detail={focus && focus !== 'geography' && !stripped && !mapDetail && tier < 1 ? focus : null}
+          flying={flying}
         />
         {/* Inside the boundary with the land it stands on — it reads the height
             field for its own footing, and appearing before the island does

@@ -5,6 +5,21 @@ import { useGSAP } from '@gsap/react'
 // it. Do this once, here — not per component.
 gsap.registerPlugin(useGSAP)
 
+/*
+  A stalled frame slows the animation down; it never skips it forward.
+
+  GSAP's default only intervenes when a single frame takes over half a
+  second, and passes anything shorter straight through as elapsed time. So
+  when the main thread stalls for a few hundred milliseconds mid-flight — a
+  detail mesh landing, a shader compiling, a shadow map re-rendering — the
+  camera tween jumps that far along its path in one frame. Recorded on a hop
+  between two districts: 28 units in a single frame, straight to the end.
+  Any gap over 250ms is now counted as 33ms. Ordinary slow frames, down to
+  four a second, still run in real time — any lower a threshold, and a
+  machine that is merely slow sees every animation crawl.
+*/
+gsap.ticker.lagSmoothing(250, 33)
+
 /**
  * Shared easing vocabulary. Reach for these instead of inlining ease strings so
  * motion stays consistent across the scene.

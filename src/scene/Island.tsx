@@ -75,6 +75,8 @@ type IslandProps = {
    * it, and on the map, where the land is not the subject.
    */
   detail: DistrictId | null
+  /** True while the camera is in flight; the patch is not swapped in then. */
+  flying: boolean
 }
 
 /** A triangle nobody will ever see, so the patch's program is compiled at startup. */
@@ -89,10 +91,22 @@ const PRELOAD_TRI = new THREE.BufferGeometry().setAttribute(
  * than stalling it; kept once built; and while it is in place, the coarse
  * mesh is cut away beneath it.
  */
-function DetailPatch({ id }: { id: DistrictId }) {
+function DetailPatch({ id, flying }: { id: DistrictId; flying: boolean }) {
   const d = DISTRICTS.find((x) => x.id === id)!
   const gl = useThree((s) => s.gl)
-  const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null)
+  const [built, setGeometry] = useState<THREE.BufferGeometry | null>(null)
+  /*
+    Built during the flight, swapped in once it lands, and kept through any
+    hops within the district after that. Swapping mid-flight costs a frame —
+    the geometry upload and a shadow-map pass — and a stall in the middle of
+    a camera move is the one place it shows.
+  */
+  const [landed, setLanded] = useState(false)
+  useEffect(() => setLanded(false), [id])
+  useEffect(() => {
+    if (built && !flying) setLanded(true)
+  }, [built, flying])
+  const geometry = landed ? built : null
 
   useEffect(() => {
     let live = true
@@ -130,7 +144,7 @@ function DetailPatch({ id }: { id: DistrictId }) {
  * occluding against a full-height mountain for the first two seconds, while the
  * island the visitor can see is still flat.
  */
-export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden, detail }: IslandProps) {
+export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden, detail, flying }: IslandProps) {
   const group = useRef<THREE.Group>(null!)
 
   /*
@@ -184,7 +198,7 @@ export function Island({ occluderRef, deepLinked, onPick, lowDetail, hidden, det
         receiveShadow
         castShadow
       />
-      {detail && !lowDetail && !hidden && <DetailPatch id={detail} />}
+      {detail && !lowDetail && !hidden && <DetailPatch id={detail} flying={flying} />}
       {/* Present from the start so <Preload all> compiles the patch's program
           during the boot screen rather than mid-flight, the first time one is
           drawn. Two hundred units under the sea. */}

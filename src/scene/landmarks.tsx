@@ -762,6 +762,12 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
         choose(-1)
       }}
     >
+      {/*
+        The map itself is out of the shadow pass. It is a document, not
+        ground: a tower's shadow across Asia is not information, and the
+        Garden now stands near enough the Monument for that to happen.
+      */}
+      <group userData={{ noShadow: true }}>
       {/* The plate: a stone kerb, the sea face inset into it. */}
       <mesh geometry={MAP_PLATE} position={[0, 0.21, 0]} material={GARDEN_STONE} />
       <mesh geometry={MAP_FACE} position={[0, 0.46, 0]} material={MAP_SEA_MAT} />
@@ -848,6 +854,7 @@ export function GeographicalGarden({ d, focused }: LandmarkProps) {
         */
         raycast={() => null}
       />
+      </group>
 
       {/*
         The chosen country's name, over the country itself.

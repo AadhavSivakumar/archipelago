@@ -27,37 +27,40 @@ import { DISTRICTS, districtCentre, type DistrictId } from './districts'
   vertex count does not move.
 */
 
-/** Rows and columns. Unchanged by the grading — only their spacing varies. */
 /*
-  Cut from 452x576, which was 520,704 triangles — a quarter of everything the
-  scene drew in a frame, and the largest single item in it by half again.
+  The grid is graded along each axis separately: uniform through a core that
+  holds everything anyone can visit — every district, every island, the
+  near mainland — and stretching cubically outside it, out to the world's
+  edge, where the ground is haze.
 
-  The grid is graded, so what matters is the quad size where the camera actually
-  is: at the centre of the archipelago this moves from 0.40 world units to 0.53,
-  and at the edge of a district island from 0.75 to 1.00. Both sit far below the
-  scale at which the height field has anything left to say — the fine relief in
-  sampleHeight bottoms out around six units, and everything under that comes
-  from the shader in surface.ts, which is unchanged. What is lost is a little
-  coastline precision, against 43 per cent of the triangles.
+  This replaced a single cubic stretch centred on the origin, which was right
+  when the archipelago was one island at the middle and wrong once the
+  districts spread to a hundred units out: at x = 100 its quads were two and a
+  half units across, four times the centre's, and the wide view showed facets
+  along every outer coast. The core is now 0.65 units throughout.
+
+  The two ends of the Z axis are not alike. North (−z) is the mainland running
+  to the horizon, which the home camera sees for four hundred units and needs
+  real resolution along; south (+z) past the outer islands is sea floor under
+  the water, which needs almost none.
 */
-export const GRID_X = 340
-export const GRID_Z = 434
+export const GRID_X = 500
+export const GRID_Z = 440
 
-/** Half-extent of the grid before grading. Sets the dense middle. */
-export const GRID_HALF_X = 90
-export const GRID_HALF_Z = 115
+export type Axis = {
+  min: number
+  coreMin: number
+  coreMax: number
+  max: number
+  /** Share of the grid given to each tail. */
+  fMin: number
+  fMax: number
+}
 
-/**
- * Half-extent of the world after grading.
- *
- * Sized against the fog at its WIDEST, not at desktop aspect. framing.ts pulls
- * the camera back up to 2x on a portrait phone and Scene.tsx scales the fog to
- * match, so the far plane reaches 680 there — and a constant world of 460 left
- * the mainland's horizon only a quarter fogged on exactly the form factor the
- * framing code exists for. The grading absorbs the extra distance for free:
- * edge quads coarsen to ~9 units, the vertex count does not move at all, and
- * that geometry is nothing but fog-coloured backdrop anyway.
- */
+export const AXIS_X: Axis = { min: -600, coreMin: -125, coreMax: 125, max: 600, fMin: 0.115, fMax: 0.115 }
+export const AXIS_Z: Axis = { min: -900, coreMin: -120, coreMax: 75, max: 900, fMin: 0.272, fMax: 0.046 }
+
+/** Half-extent of the world, for the rim fade. */
 export const WORLD_HALF_X = 600
 export const WORLD_HALF_Z = 900
 
@@ -65,14 +68,38 @@ export const WORLD_HALF_Z = 900
 const RIM_FADE = 40
 
 /**
- * Cubic grading. Identity at the centre (so the derivative there is exactly 1
- * and the islands keep their original spacing), reaching the world half-extent
- * at the grid's own edge.
+ * World coordinate at a fraction p (0..1) across one axis of the grid.
+ *
+ * Uniform through the core; beyond it, a linear term that continues the
+ * core's spacing plus a cubic that takes up the rest, so the spacing is
+ * continuous at the join and grows smoothly to the edge.
  */
-export function grade(t: number, gridHalf: number, worldHalf: number) {
-  const s = Math.abs(t) / gridHalf
-  const stretch = (worldHalf - gridHalf) / gridHalf
-  return Math.sign(t) * gridHalf * (s + stretch * s * s * s)
+export function axisAt(a: Axis, p: number) {
+  const fCore = 1 - a.fMin - a.fMax
+  const k = (a.coreMax - a.coreMin) / fCore
+  if (p < a.fMin) {
+    const u = (a.fMin - p) / a.fMin
+    const A = a.coreMin - a.min - k * a.fMin
+    return a.coreMin - (k * a.fMin * u + A * u * u * u)
+  }
+  if (p > 1 - a.fMax) {
+    const u = (p - (1 - a.fMax)) / a.fMax
+    const A = a.max - a.coreMax - k * a.fMax
+    return a.coreMax + k * a.fMax * u + A * u * u * u
+  }
+  return a.coreMin + (p - a.fMin) * k
+}
+
+/** axisAt inverted, by bisection: the fraction a world coordinate sits at. */
+export function axisFraction(a: Axis, world: number) {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (axisAt(a, mid) < world) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
 }
 
 function clamp(x: number, lo: number, hi: number) {
@@ -222,7 +249,15 @@ const PADS: Pad[] = [
  * coast. Both would be given a redundant — and, at Scientific Shores' position,
  * actively wrong — circular island if they were left in the table.
  */
-const MAINLAND_DISTRICTS = new Set<DistrictId>(['anthropology', 'science', 'life', 'inventions', 'mythology'])
+/*
+  Everything that does not need the sea around it stands on the mainland.
+  What stays at sea is what its name puts there: the Isles, the Lagoon's
+  atoll, the Cay — and the Shores, the Bayou and the Inlet, which are on the
+  mainland but at its edge, where the water is.
+*/
+const MAINLAND_DISTRICTS = new Set<DistrictId>([
+  'anthropology', 'science', 'life', 'inventions', 'mythology', 'history', 'geography', 'art',
+])
 
 /**
  * Every island in the archipelago, as centre and nominal radius.
@@ -294,7 +329,6 @@ const ISLES: { x: number; z: number; radius: number; seed: number; crest: number
 
   // Uninhabited. Clear of the district islands, clear of the centre, and clear
   // of the open water on the +Z side, which is meant to stay open.
-  { x: -14, z: 40, radius: 6.5, seed: 207, crest: ISLE_CREST(6.5) },
   { x: 16, z: 44, radius: 4.5, seed: 214, crest: ISLE_CREST(4.5) },
   { x: 74, z: 2, radius: 7.0, seed: 228, crest: ISLE_CREST(7.0) },
   { x: 10, z: -40, radius: 5.0, seed: 235, crest: ISLE_CREST(5.0) },
@@ -589,23 +623,6 @@ function gridIndex(segX: number, segZ: number) {
   return index
 }
 
-/** The world coordinate of a grid line, along one axis. */
-function gridLine(i: number, seg: number, gridHalf: number, worldHalf: number) {
-  return grade(-gridHalf + (i * (gridHalf * 2)) / seg, gridHalf, worldHalf)
-}
-
-/** grade() inverted, by Newton: the parameter a world coordinate came from. */
-function ungrade(world: number, gridHalf: number, worldHalf: number) {
-  const target = Math.abs(world) / gridHalf
-  const stretch = (worldHalf - gridHalf) / gridHalf
-  let s = Math.min(1, target)
-  for (let i = 0; i < 6; i++) {
-    const f = s + stretch * s * s * s - target
-    s -= f / (1 + 3 * stretch * s * s)
-  }
-  return Math.sign(world) * s * gridHalf
-}
-
 /**
  * The height of the coarse DISPLAY MESH at a world XZ — not of the field, of
  * the mesh: the display grid's own triangles, interpolated the way the GPU
@@ -613,14 +630,13 @@ function ungrade(world: number, gridHalf: number, worldHalf: number) {
  * rim, so that where it meets the coarse island there is no step.
  */
 export function coarseHeight(x: number, z: number, segX = GRID_X, segZ = GRID_Z) {
-  const fx = ((ungrade(x, GRID_HALF_X, WORLD_HALF_X) + GRID_HALF_X) / (GRID_HALF_X * 2)) * segX
-  const fz = ((ungrade(z, GRID_HALF_Z, WORLD_HALF_Z) + GRID_HALF_Z) / (GRID_HALF_Z * 2)) * segZ
+  const fx = axisFraction(AXIS_X, x) * segX
+  const fz = axisFraction(AXIS_Z, z) * segZ
   const ix = Math.min(segX - 1, Math.max(0, Math.floor(fx)))
   const iz = Math.min(segZ - 1, Math.max(0, Math.floor(fz)))
   const u = fx - ix
   const v = fz - iz
-  const at = (i: number, k: number) =>
-    sampleHeight(gridLine(i, segX, GRID_HALF_X, WORLD_HALF_X), gridLine(k, segZ, GRID_HALF_Z, WORLD_HALF_Z))
+  const at = (i: number, k: number) => sampleHeight(axisAt(AXIS_X, i / segX), axisAt(AXIS_Z, k / segZ))
   const ha = at(ix, iz)
   const hb = at(ix, iz + 1)
   const hc = at(ix + 1, iz + 1)
@@ -671,12 +687,8 @@ export function buildGridArrays(segX: number, segZ: number): GridArrays {
   // Grade each axis once rather than per vertex.
   const xs = new Float64Array(nx)
   const zs = new Float64Array(nz)
-  for (let ix = 0; ix < nx; ix++) {
-    xs[ix] = grade(-GRID_HALF_X + (ix * (GRID_HALF_X * 2)) / segX, GRID_HALF_X, WORLD_HALF_X)
-  }
-  for (let iz = 0; iz < nz; iz++) {
-    zs[iz] = grade(-GRID_HALF_Z + (iz * (GRID_HALF_Z * 2)) / segZ, GRID_HALF_Z, WORLD_HALF_Z)
-  }
+  for (let ix = 0; ix < nx; ix++) xs[ix] = axisAt(AXIS_X, ix / segX)
+  for (let iz = 0; iz < nz; iz++) zs[iz] = axisAt(AXIS_Z, iz / segZ)
 
   let p = 0
   for (let iz = 0; iz < nz; iz++) {

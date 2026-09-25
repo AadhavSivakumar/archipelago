@@ -355,7 +355,18 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
     const sameDistrict = focus !== null && focus === lastFocus.current
     lastFocus.current = focus
 
-    if (intro || overhead || sameDistrict) {
+    /*
+      And a hop between two views that already face the same way is a dolly,
+      not an arc. Most districts now stand on the mainland looking out to
+      sea, so their views are nearly parallel; arcing between them swung the
+      view eleven degrees sideways and back for no reason — the arc is for
+      going round an island, and there is none in the way.
+    */
+    const fromDir = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize()
+    const toDir = new THREE.Vector3(view.target.x - view.position.x, 0, view.target.z - view.position.z).normalize()
+    const parallel = fromDir.dot(toDir) > Math.cos((35 * Math.PI) / 180)
+
+    if (intro || overhead || sameDistrict || parallel) {
       // Straight pull-in: no island between the camera and its destination to
       // sweep around.
       tl.to(

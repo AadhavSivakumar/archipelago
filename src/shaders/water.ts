@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { uQuality } from '../scene/quality'
+import { uSeabed, uSeabedBounds } from '../scene/terrain'
 
 /**
  * The sea surface, as one definition.
@@ -216,12 +217,44 @@ if (uChopStrength * uQuality > 0.0) {
  * same clock and the boat, the foam band and the map's pool cannot drift out of
  * phase with the sea they belong to.
  */
+/*
+  Colour by depth: the one thing that makes a sea look like a sea from the
+  air. Over the shelf it is turquoise, over the drop-off blue, and a line of
+  surf breaks where it meets the land, moving with the swell and broken up
+  so it does not run as a ruled line. Read from the seabed height map the
+  terrain worker bakes; outside that map it is open ocean.
+*/
+const DEPTH_GLSL = /* glsl */ `
+  {
+    vec2 uvSea = (vWaterPos - uSeabedBounds.xy) / uSeabedBounds.zw;
+    float inside = step(0.0, uvSea.x) * step(uvSea.x, 1.0) * step(0.0, uvSea.y) * step(uvSea.y, 1.0);
+    float ground = mix(-12.0, texture2D(uSeabed, clamp(uvSea, 0.0, 1.0)).r * 16.0 - 12.0, inside);
+    float depth = max(0.0, -ground);
+    vec3 shallow = vec3(0.10, 0.46, 0.44);
+    vec3 mid = vec3(0.03, 0.22, 0.33);
+    vec3 deep = vec3(0.012, 0.075, 0.16);
+    vec3 sea = mix(shallow, mid, smoothstep(0.3, 3.5, depth));
+    sea = mix(sea, deep, smoothstep(3.5, 11.0, depth));
+    // Surf: a band just off the land, broken by a slow noise and riding the swell.
+    float surfN = sin(vWaterPos.x * 0.9 + uTime * 1.3) * sin(vWaterPos.y * 0.83 - uTime * 1.1);
+    // Thin: where a shelf lies a hand's breadth under the surface for tens of
+    // units, a wider band turned it into a white sheet rather than a line.
+    float surf = (1.0 - smoothstep(0.0, 0.22 + 0.1 * surfN, depth)) * inside;
+    sea = mix(sea, vec3(0.78, 0.86, 0.88), surf * 0.6);
+    diffuseColor.rgb = sea;
+  }
+`
+
 export function water(
   material: THREE.MeshStandardMaterial,
-  { swell = false, chopScale = 1, chopStrength = 1 } = {},
+  { swell = false, chopScale = 1, chopStrength = 1, depth = false } = {},
 ) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime
+    if (depth) {
+      shader.uniforms.uSeabed = uSeabed
+      shader.uniforms.uSeabedBounds = uSeabedBounds
+    }
     shader.uniforms.uQuality = uQuality
     shader.uniforms.uChopScale = { value: chopScale }
     shader.uniforms.uChopStrength = { value: chopStrength }
@@ -248,17 +281,19 @@ export function water(
       'uniform float uChopStrength;',
       'uniform float uQuality;',
       'varying vec2 vWaterPos;',
+      depth ? 'uniform sampler2D uSeabed;\nuniform vec4 uSeabedBounds;' : '',
       WAVE_CHOP_GLSL,
       shader.fragmentShader,
     ]
       .join('\n')
+      .replace('#include <color_fragment>', depth ? `#include <color_fragment>\n${DEPTH_GLSL}` : '#include <color_fragment>')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${WAVE_CHOP_CHUNK}`)
   }
 
   // The two variants compile to different vertex source, so they must not share
   // a cache entry — otherwise whichever compiled first would be handed to both
   // and one of them would be silently wrong.
-  material.customProgramCacheKey = () => `water-${swell}`
+  material.customProgramCacheKey = () => `water-${swell}-${depth}`
   material.needsUpdate = true
   return material
 }

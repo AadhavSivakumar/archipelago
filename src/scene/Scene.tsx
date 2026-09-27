@@ -238,7 +238,7 @@ const WORLD = (
   */}
   <ambientLight intensity={0.12} />
   <hemisphereLight args={['#cfe4ff', '#41513c', 0.32]} />
-  <primitive object={sunTarget} position={[10, 0, -28]} />
+  <primitive object={sunTarget} position={[-4, 0, -40]} />
   <directionalLight
     castShadow
     target={sunTarget}
@@ -258,18 +258,21 @@ const WORLD = (
       the reveal, and cast by rounded landforms; there is no hard edge in the
       frame for the extra resolution to sharpen.
     */
-    shadow-mapSize={[2048, 2048]}
+    // 3072 over ±135: every district is inside the box now, from the
+    // Arboretum at x -100 to the Terraces at z -114, at nine texels a unit.
+    // The map is frozen once the reveal settles, so its cost is a few frames.
+    shadow-mapSize={[3072, 3072]}
     shadow-bias={-0.0004}
     shadow-normalBias={0.06}
     // Near/far are measured from the light, which now sits ~190 units out.
     shadow-camera-near={60}
-    shadow-camera-far={340}
+    shadow-camera-far={420}
     // ±100 about the aimed target above, which encloses the land: islands
     // reach x ±69 and the mainland runs to z -101 before the rim fade.
-    shadow-camera-left={-100}
-    shadow-camera-right={100}
-    shadow-camera-top={100}
-    shadow-camera-bottom={-100}
+    shadow-camera-left={-135}
+    shadow-camera-right={135}
+    shadow-camera-top={135}
+    shadow-camera-bottom={-135}
   />
   </>
 )

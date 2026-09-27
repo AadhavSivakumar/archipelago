@@ -246,7 +246,7 @@ export function weather<M extends THREE.MeshStandardMaterial>(
 
     // A define, not a uniform: the loop bound has to be a constant for the
     // compiler to unroll it, and unrolled is the whole point of a small count.
-    shader.defines = { ...shader.defines, SF_OCTAVES: String(Math.max(1, Math.min(4, o.octaves))) }
+    shader.defines = { ...shader.defines, SF_OCTAVES: String(Math.max(1, Math.min(5, o.octaves))) }
     // The shared dial, by reference — see quality.ts.
     shader.uniforms.uQuality = uQuality
     shader.uniforms.uGrain = { value: o.grain }

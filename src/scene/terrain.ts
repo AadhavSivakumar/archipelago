@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { weather } from './surface'
+import { uQuality } from './quality'
 import { uTime, WAVE_GLSL } from '../shaders/water'
 import { DISTRICTS } from './districts'
 import { buildGridArrays, buildPatchArrays, GRID_X, GRID_Z, shadeTerrain, type Palette } from './terrainField'
@@ -356,18 +357,51 @@ function islandMaterial(withHole: boolean) {
     shader.uniforms.uTime = uTime
     if (withHole) shader.uniforms.uHole = uHole
 
-    shader.vertexShader = `varying vec3 vLocalPos;\n${shader.vertexShader}`.replace(
+    shader.uniforms.uQuality = uQuality
+    shader.vertexShader = `varying vec3 vLocalPos;\nvarying float vUpN;\n${shader.vertexShader}`.replace(
       '#include <begin_vertex>',
-      '#include <begin_vertex>\n  vLocalPos = position;',
+      '#include <begin_vertex>\n  vLocalPos = position;\n  vUpN = normal.y;',
     )
 
-    shader.fragmentShader = `uniform float uTime;\n${withHole ? 'uniform vec4 uHole;\n' : ''}varying vec3 vLocalPos;\n${WAVE_GLSL}\n${shader.fragmentShader}`
+    shader.fragmentShader = `uniform float uTime;\n${withHole ? 'uniform vec4 uHole;\n' : ''}varying vec3 vLocalPos;\nvarying float vUpN;\n${WAVE_GLSL}\n${shader.fragmentShader}`
       // First thing in main, so a discarded fragment costs nothing more.
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>${withHole ? HOLE_GLSL : ''}`)
       .replace(
         '#include <color_fragment>',
         /* glsl */ `
       #include <color_fragment>
+      /*
+        Detail the vertex colours cannot carry.
+
+        The colour ramp is baked per vertex, at two-thirds of a unit apart,
+        so across the wide view every hillside was a smooth gradient between
+        a few colours — the look of a nineties flight simulator. These add
+        what a vertex grid cannot: rock outcrops cut crisply wherever the
+        slope is steep, read from the interpolated normal with a ragged
+        edge; strata banding across the rock; and patches in the grass at
+        scales from ten units down to two. All low frequency on purpose, so
+        they survive at a distance, and each faded by the pixel footprint
+        before it can alias.
+      */
+      if (uQuality > 0.0) {
+        float lpx = max(length(dFdx(vLocalPos)), length(dFdy(vLocalPos)));
+        float near2 = clamp(1.0 - lpx * 1.1, 0.0, 1.0);
+        float n1 = sfNoise(vec3(vLocalPos.xz * 0.1, 3.7));
+        float n2 = sfNoise(vec3(vLocalPos.xz * 0.45, 9.1));
+        float n3 = sfNoise(vLocalPos * 0.6 + 17.0);
+        float land = smoothstep(0.6, 1.6, vLocalPos.y);
+
+        float rock = smoothstep(0.84, 0.66, vUpN + (n2 - 0.5) * 0.18 * (0.4 + 0.6 * near2)) * land;
+        float strata = 0.86 + 0.14 * sin(vLocalPos.y * 4.2 + n3 * 3.0);
+        vec3 rockCol = vec3(0.19, 0.19, 0.2) * mix(1.0, strata, near2) * (0.85 + 0.3 * n1);
+        diffuseColor.rgb = mix(diffuseColor.rgb, rockCol, rock * 0.85);
+
+        float grass = land * (1.0 - rock) * smoothstep(12.0, 6.0, vLocalPos.y);
+        float patchy = (n1 - 0.5) * 0.5 + (n2 - 0.5) * 0.3 * near2;
+        diffuseColor.rgb *= 1.0 + patchy * grass;
+        // Dry, sunlit patches toward straw; damp ones toward deep green.
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.04, 0.78), clamp(patchy * 2.2, 0.0, 1.0) * grass);
+      }
       float surface = waveHeight(vLocalPos.xz, uTime);
       /*
         Half-width of the band. Note there is no clearance margin to the lowest
@@ -407,7 +441,8 @@ function islandMaterial(withHole: boolean) {
     surface.ts means the fourth costs only the fragments close enough to
     resolve it, which is the detail patch under the camera and nothing else.
   */
-  weather(material, { grain: 0.85, mottle: 0.24, bump: 0.65, rough: 0.16, octaves: 4 })
+  // Coarser than it was, so the relief is still there at the wide view.
+  weather(material, { grain: 0.4, mottle: 0.22, bump: 0.5, rough: 0.16, octaves: 5 })
   // Different source, so never the same compiled program.
   material.customProgramCacheKey = () => `island-${withHole ? 'coarse' : 'patch'}`
   return material
@@ -441,3 +476,53 @@ ISLAND_DEPTH_MATERIAL.onBeforeCompile = (shader) => {
   )
 }
 ISLAND_DEPTH_MATERIAL.customProgramCacheKey = () => 'island-depth-hole'
+
+// ---------------------------------------------------------------------------
+// The sea floor, as the water sees it
+// ---------------------------------------------------------------------------
+
+/** The region the height map covers; outside it the sea is open water. */
+export const SEABED_BOUNDS = { minX: -180, minZ: -175, sizeX: 360, sizeZ: 290 }
+const SEABED_W = 640
+const SEABED_H = 516
+
+/**
+ * The ground under the sea, one byte a sample, for the water to colour itself
+ * by depth: turquoise over the shelf, deep blue offshore, surf at the edge.
+ * A 1x1 stand-in reads as deep water until the worker's arrives.
+ */
+export const uSeabed = {
+  value: (() => {
+    const t = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat)
+    t.needsUpdate = true
+    return t as THREE.Texture
+  })(),
+}
+export const uSeabedBounds = {
+  value: new THREE.Vector4(SEABED_BOUNDS.minX, SEABED_BOUNDS.minZ, SEABED_BOUNDS.sizeX, SEABED_BOUNDS.sizeZ),
+}
+
+let seabedStarted = false
+/** Builds the height map on a worker of its own, alongside the island's. */
+export function loadSeabed() {
+  if (seabedStarted) return
+  seabedStarted = true
+  let worker: Worker
+  try {
+    worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' })
+  } catch {
+    return
+  }
+  worker.onmessage = (event: MessageEvent<{ heights: Uint8Array }>) => {
+    worker.terminate()
+    const t = new THREE.DataTexture(event.data.heights, SEABED_W, SEABED_H, THREE.RedFormat)
+    t.magFilter = THREE.LinearFilter
+    t.minFilter = THREE.LinearFilter
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping
+    t.needsUpdate = true
+    uSeabed.value = t
+  }
+  worker.onerror = () => worker.terminate()
+  const request: TerrainRequest = { kind: 'heights', ...SEABED_BOUNDS, w: SEABED_W, h: SEABED_H }
+  worker.postMessage(request)
+}

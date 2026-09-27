@@ -10,6 +10,7 @@ import {
   ISLAND_DETAIL_MATERIAL,
   ISLAND_LOD_MATERIAL,
   ISLAND_MATERIAL,
+  loadSeabed,
   PATCH_HOLE,
   patchGeometry,
   uHole,
@@ -293,12 +294,17 @@ WATER_GEOMETRY.rotateX(-Math.PI / 2)
   gives the swell its shading back. The deeper base colour then reads as water
   with depth under it rather than as painted board.
 */
+/*
+  Opaque now. The sea used to be 94% opaque so the shelf would show through,
+  and what showed was the shelf's own geometry: dark rings and blotches round
+  every island, at the sea floor's coarse resolution. The shallows are now
+  painted from the seabed height map instead — see DEPTH_GLSL — so nothing
+  under the surface needs to be seen at all.
+*/
 const WATER_MATERIAL = new THREE.MeshStandardMaterial({
-  color: '#12496f',
-  roughness: 0.22,
-  metalness: 0.5,
-  transparent: true,
-  opacity: 0.94,
+  color: '#ffffff',
+  roughness: 0.16,
+  metalness: 0.35,
 })
 
 // The wave itself now lives in src/shaders/water.ts, because the island's foam
@@ -309,9 +315,10 @@ const WATER_MATERIAL = new THREE.MeshStandardMaterial({
   busier than it was; corrected, the same numbers read noticeably calmer. This
   puts the apparent texture back where it was, honestly this time.
 */
-water(WATER_MATERIAL, { swell: true, chopStrength: 1.7 })
+water(WATER_MATERIAL, { swell: true, chopStrength: 1.7, depth: true })
 
 export function Water({ visible }: { visible: boolean }) {
+  useEffect(() => loadSeabed(), [])
   useFrame((state) => {
     uTime.value = state.clock.elapsedTime
   })

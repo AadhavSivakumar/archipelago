@@ -200,6 +200,9 @@ export function Districts({
               creates no stacking context, so without the cap a near label
               paints over the page's own chrome.
             */}
+            {/* Only from the overview: inside a district, the other districts'
+                pills are clutter floating over what is being read. */}
+            {(focus === null || focus === d.id) && (
             <Html position={[0, LABEL_HEIGHT[d.id], 0]} center occlude={[occluders]} zIndexRange={[8, 0]}>
               <button
                 type="button"
@@ -233,6 +236,7 @@ export function Districts({
                 {d.name}
               </button>
             </Html>
+            )}
             </group>
           </group>
         )

@@ -10,6 +10,7 @@ import { COSMOS } from './cosmos'
 import { INVENTIONS } from './inventions'
 import { IDEOLOGIES } from './ideologies'
 import { CREATURES, LEGENDS } from './lore'
+import { COUNTRIES } from '../scene/worldCountries'
 
 /**
  * What each district is actually about.
@@ -67,8 +68,8 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
     summary: `${PANTHEONS.length} pantheons with their family trees, ${LEGENDS.length} legends along the avenue, and ${CREATURES.length} creatures on the outer ring.`,
     topics: [
       { name: 'Pantheons', note: PANTHEONS.map((p) => p.name).join(', ') + '.' },
-      { name: 'Legends', note: `${LEGENDS.length} stories, from the Enūma Eliš to the Dreamtime.` },
-      { name: 'Creatures', note: `${CREATURES.length} of them, from the dragon to the wendigo.` },
+      { name: 'Legends', note: `${LEGENDS.length} stories, from the Enūma Eliš to Sedna.` },
+      { name: 'Creatures', note: `${CREATURES.length} of them, from the dragon to Mokele-mbembe.` },
     ],
     hint: "Choose a shrine to raise its pantheon's family tree, a stone on the avenue for a legend, or a statue for a creature.",
   },
@@ -80,13 +81,13 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
   },
 
   geography: {
-    summary: "Earth's landscapes, from the highest ground to the densest.",
+    summary: `A world map laid out as a parterre: ${COUNTRIES.length} countries and territories, each one clickable, each with its Wikipedia entry.`,
     topics: [
-      { name: 'Mountains', note: 'Towering ground.' },
-      { name: 'Cities', note: 'Ground made dense.' },
-      { name: 'Landscapes', note: 'Everything in between.' },
+      { name: 'The map', note: 'Equirectangular: every degree of latitude and longitude the same size.' },
+      { name: 'The countries', note: 'Natural Earth outlines, simplified from the 1:50m set.' },
+      { name: 'The graticule', note: 'Every thirty degrees, with the equator and prime meridian in brass.' },
     ],
-    hint: 'Choose a country to read about it.',
+    hint: 'Choose a country on the map, or find it by name in the strip below.',
   },
 
   science: {

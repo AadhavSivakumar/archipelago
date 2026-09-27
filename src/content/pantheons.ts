@@ -1,5 +1,5 @@
 /**
- * The Ideology Isles: fourteen mythologies, each with the family tree of its gods.
+ * The Mythological Monument: eighteen mythologies, each with the family tree of its gods.
  *
  * A deity names its parents by name, within the same pantheon. From that the
  * tree lays itself out: a figure's generation is one below its parents', and a
@@ -486,6 +486,92 @@ export const PANTHEONS: readonly Pantheon[] = [
       { name: 'Vayu-Vata', article: 'Vayu-Vata' },
       { name: 'Zam', article: 'Zam' },
       { name: 'Daena', article: 'Daena' },
+    ],
+  },
+  {
+    id: 'yoruba',
+    name: 'Yoruba',
+    article: 'Yoruba religion',
+    color: '#d98a5c',
+    /* Olodumare above, the orishas below, following the Ifá tradition. */
+    deities: [
+      { name: 'Olodumare', article: 'Olodumare' },
+      { name: 'Obatala', article: 'Obatala', parents: ['Olodumare'] },
+      { name: 'Orunmila', article: 'Orunmila', parents: ['Olodumare'] },
+      { name: 'Eshu', article: 'Eshu', parents: ['Olodumare'] },
+      { name: 'Oduduwa', article: 'Oduduwa', parents: ['Olodumare'] },
+      { name: 'Yemoja', article: 'Yemọja' },
+      { name: 'Aganju', article: 'Aganju' },
+      { name: 'Shango', article: 'Shango', parents: ['Aganju', 'Yemoja'] },
+      { name: 'Ogun', article: 'Ogun', parents: ['Yemoja'] },
+      { name: 'Oshun', article: 'Ọṣun', parents: ['Yemoja'] },
+      { name: 'Oya', article: 'Ọya' },
+      { name: 'Oshosi', article: 'Ọṣọọsi', parents: ['Yemoja'] },
+      { name: 'Babalú-Ayé', article: 'Babalú-Ayé' },
+      { name: 'Olokun', article: 'Olokun' },
+    ],
+  },
+  {
+    id: 'maya',
+    name: 'Maya',
+    article: 'Maya mythology',
+    color: '#6fb89a',
+    /* The Popol Vuh's lineage of the Hero Twins. */
+    deities: [
+      { name: 'Itzamna', article: 'Itzamna' },
+      { name: 'Ixchel', article: 'Ixchel' },
+      { name: 'Kukulkan', article: 'Kukulkan' },
+      { name: 'Chaac', article: 'Chaac' },
+      { name: 'Kinich Ahau', article: 'Kinich Ahau' },
+      { name: 'Huracan', article: 'Huracan' },
+      { name: 'Xpiyacoc', article: 'Xmucane' },
+      { name: 'Hun Hunahpu', article: 'Hun Hunahpu', parents: ['Xpiyacoc'] },
+      { name: 'Xquic', article: 'Xquic' },
+      { name: 'Hunahpu', article: 'Maya Hero Twins', parents: ['Hun Hunahpu', 'Xquic'] },
+      { name: 'Xbalanque', article: 'Xbalanque', parents: ['Hun Hunahpu', 'Xquic'] },
+      { name: 'Hun-Came', article: 'Xibalba' },
+      { name: 'Ah Puch', article: 'Ah Puch' },
+    ],
+  },
+  {
+    id: 'finnish',
+    name: 'Finnish',
+    article: 'Finnish mythology',
+    color: '#a9c8e8',
+    /* The Kalevala's figures, as Lönnrot assembled them. */
+    deities: [
+      { name: 'Ukko', article: 'Ukko' },
+      { name: 'Ilmatar', article: 'Ilmatar' },
+      { name: 'Väinämöinen', article: 'Väinämöinen', parents: ['Ilmatar'] },
+      { name: 'Ilmarinen', article: 'Ilmarinen' },
+      { name: 'Lemminkäinen', article: 'Lemminkäinen' },
+      { name: 'Louhi', article: 'Louhi' },
+      { name: 'Mielikki', article: 'Mielikki' },
+      { name: 'Ahti', article: 'Ahti' },
+      { name: 'Tuoni', article: 'Tuoni' },
+      { name: 'Tuonetar', article: 'Tuonetar' },
+      { name: 'Kullervo', article: 'Kullervo' },
+    ],
+  },
+  {
+    id: 'hawaiian',
+    name: 'Hawaiian',
+    article: 'Hawaiian religion',
+    color: '#f0a8b8',
+    /* The four great akua, and Pele's family from the Pele cycle. */
+    deities: [
+      { name: 'Kāne', article: 'Kāne' },
+      { name: 'Kanaloa', article: 'Kanaloa' },
+      { name: 'Kū', article: 'Kū' },
+      { name: 'Lono', article: 'Lono' },
+      { name: 'Haumea', article: 'Haumea (mythology)' },
+      { name: 'Pele', article: 'Pele (deity)', parents: ['Haumea'] },
+      { name: 'Hiʻiaka', article: 'Hiʻiaka', parents: ['Haumea'] },
+      { name: 'Nāmaka', article: 'Nāmaka', parents: ['Haumea'] },
+      { name: 'Poliʻahu', article: 'Poliʻahu' },
+      { name: 'Laka', article: 'Laka' },
+      { name: 'Hina', article: 'Hina (goddess)' },
+      { name: 'Māui', article: 'Māui (Hawaiian mythology)', parents: ['Hina'] },
     ],
   },
 ]

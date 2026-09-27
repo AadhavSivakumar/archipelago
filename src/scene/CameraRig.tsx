@@ -30,18 +30,39 @@ type Controls = {
  * horizon falls about a fifth of the way down the frame and the scene has a sky
  * over it.
  */
+/*
+  A three-quarter view from well up, looking down about thirty-three degrees.
+
+  The low, horizon-hugging framing this used to have made a good postcard and
+  a poor map: with the districts spread from the outer islands to a hundred
+  units inland, they lined up along the shoreline one behind another, their
+  labels stacked into a single row, and the three at sea fell off the edges
+  of the frame. From up here every district is in view at once, each has its
+  own patch of screen, and their labels are spread across the height of the
+  frame instead of along one line. The horizon goes; the far mainland fades
+  into haze at the top, which is enough to say the land runs on.
+*/
 function homeView(scale: number) {
   return {
-    position: { x: 0, y: 40 * scale, z: 92 * scale },
-    target: { x: 0, y: 8, z: -30 },
+    position: { x: -10, y: 105 * scale, z: 125 * scale },
+    target: { x: -10, y: 0, z: -35 },
   }
 }
 
-/**
- * Where the opening sweep begins: just beyond the fog's far plane, so the
- * archipelago resolves out of the haze rather than being there from frame one.
- */
-const START = { x: 0, y: 120, z: 400 }
+/*
+  The opening: high over the archipelago, looking almost straight down, so
+  that for its first moments the world reads as a map — sea, islands, the
+  mainland, every district in its place as it rises. Then the camera eases
+  down and forward into the home view. The overview is where the layout is
+  learned; the home view is where it is explored.
+*/
+const OVERVIEW_START = { x: 0, y: 215, z: 34 }
+const OVERVIEW_HOLD = { x: 0, y: 188, z: 28 }
+const OVERVIEW_TARGET = { x: -12, y: 0, z: -40 }
+/** Seconds spent over the map before the descent begins. */
+const OVERVIEW_TIME = 2.4
+/** Seconds the descent takes. */
+const DESCENT_TIME = 2.8
 
 function viewFor(id: DistrictId, scale: number, sub?: SubFocus | null) {
   const d = DISTRICTS.find((x) => x.id === id)!
@@ -60,7 +81,8 @@ function viewFor(id: DistrictId, scale: number, sub?: SubFocus | null) {
       plateau height would put the camera looking up at its underside.
     */
     const extent = Math.max(sub.spanX, sub.spanZ)
-    const distance = Math.min(Math.max(extent * 3.2, 7), 30) * scale
+    // Up to 42: a whole family tree, eleven figures across, has to fit.
+    const distance = Math.min(Math.max(extent * 3.0, 7), 42) * scale
     const ox = Math.cos(d.seaward)
     const oz = Math.sin(d.seaward)
     // How steeply to look down. A stone on the ground reads best from above
@@ -298,9 +320,8 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
     }
 
     if (intro) {
-      camera.position.set(START.x, START.y, START.z)
-      // `view` is the home framing here — the intro only ever runs unfocused.
-      controls.target.set(view.target.x, view.target.y, view.target.z)
+      camera.position.set(OVERVIEW_START.x, OVERVIEW_START.y, OVERVIEW_START.z)
+      controls.target.set(OVERVIEW_TARGET.x, OVERVIEW_TARGET.y, OVERVIEW_TARGET.z)
 
       // Captured once. A flight killed mid-air never restores it, so the
       // replacement must not overwrite the saved value with Infinity.
@@ -366,7 +387,15 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
     const toDir = new THREE.Vector3(view.target.x - view.position.x, 0, view.target.z - view.position.z).normalize()
     const parallel = fromDir.dot(toDir) > Math.cos((35 * Math.PI) / 180)
 
-    if (intro || overhead || sameDistrict || parallel) {
+    if (intro) {
+      // Drift down over the map while the world rises, then descend into the
+      // home view — position and target together, so the view tilts up from
+      // looking down at the map to looking across the land.
+      const tick = () => controls.update()
+      tl.to(camera.position, { ...OVERVIEW_HOLD, duration: OVERVIEW_TIME, ease: 'sine.out', onUpdate: tick }, 0)
+      tl.to(camera.position, { ...view.position, duration: DESCENT_TIME, ease: EASE.smooth, onUpdate: tick }, OVERVIEW_TIME)
+      tl.to(controls.target, { ...view.target, duration: DESCENT_TIME, ease: EASE.smooth }, OVERVIEW_TIME)
+    } else if (overhead || sameDistrict || parallel) {
       // Straight pull-in: no island between the camera and its destination to
       // sweep around.
       tl.to(
@@ -443,7 +472,7 @@ export function CameraRig({ focus, onFlyingChange }: RigProps) {
       )
     }
 
-    tl.to(controls.target, { ...view.target, duration, ease, overwrite: 'auto' }, 0)
+    if (!intro) tl.to(controls.target, { ...view.target, duration, ease, overwrite: 'auto' }, 0)
     // `aspect` is deliberately absent from these dependencies: see the FOV
     // effect above. Including it would re-fly the camera on every resize and on
     // every phone rotation. If a hooks linter ever lands, this is a considered

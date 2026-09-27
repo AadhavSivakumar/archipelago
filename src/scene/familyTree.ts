@@ -11,8 +11,13 @@ export type TreeLayout = {
   height: number
 }
 
-export const TREE_DX = 0.95
-export const TREE_DY = 1.0
+/*
+  Spacing wide enough that every name can be read at the distance the
+  camera frames a whole tree from: at 0.95 the names of neighbours ran into
+  one another, and a tree of thirty gods was a smear of white.
+*/
+export const TREE_DX = 1.75
+export const TREE_DY = 1.55
 
 /**
  * Lays a set of figures out as a family tree: one row per generation, the

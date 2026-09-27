@@ -88,7 +88,9 @@ const SHRINE_R = 8.0
 const CREATURE_R = 10.6
 /** Half the angular gap each ring leaves for the avenue, either side of seaward. */
 const GAP = 0.36
-const TREE_LIFT = 2.6
+const TREE_LIFT = 3.2
+/** How far out along the avenue the trees hang. */
+const TREE_OUT = 12
 
 type Layout = {
   shrines: Exhibit[]
@@ -119,7 +121,8 @@ function layoutMonument(d: { seaward: number } & Parameters<typeof groundAt>[0])
       yaw: Math.atan2(-Math.cos(a), -Math.sin(a)),
       color: GROUPS[i].color,
       extent: treeExtent(TREES[i]),
-      elevation: 0.3,
+      // Nearly level: the tree is a chart, and wants to be faced.
+      elevation: 0.14,
     }
   })
 
@@ -193,10 +196,19 @@ function layoutMonument(d: { seaward: number } & Parameters<typeof groundAt>[0])
 export function MythologicalMonument({ d, focused }: LandmarkProps) {
   const layout = useMemo(() => layoutMonument(d), [d])
 
-  const anchorOf = useCallback(
-    (g: number): [number, number, number] => [layout.shrines[g].x, layout.shrines[g].y + TREE_LIFT, layout.shrines[g].z],
-    [layout],
-  )
+  /*
+    Every pantheon's tree hangs in the same place: over the avenue, in front
+    of the tower, facing the way the visitor came in. Hung over its own
+    shrine it was seen edge-on half the time, tangled in the tower and the
+    shrines either side; out here it has open air in front of it and a
+    backdrop behind, and the camera can face it squarely.
+  */
+  const hang = useMemo(() => {
+    const x = Math.cos(d.seaward) * TREE_OUT
+    const z = Math.sin(d.seaward) * TREE_OUT
+    return [x, groundAt(d, x, z) + TREE_LIFT, z] as [number, number, number]
+  }, [d])
+  const anchorOf = useCallback((): [number, number, number] => hang, [hang])
   const axis = useMemo(() => ({ x: Math.sin(d.seaward), z: -Math.cos(d.seaward) }), [d])
   const kicker = useCallback(
     (g: number, f: { parents?: readonly string[] }) =>
@@ -244,7 +256,7 @@ export function MythologicalMonument({ d, focused }: LandmarkProps) {
         picked={pick.group < GROUPS.length ? pick.group : -1}
         onPick={pick.pickGroup}
         onSubFocus={pick.onGroupSubFocus}
-        place={(it, i) => [it.x, it.y + TREE_LIFT + TREES[i].height / 2, it.z]}
+        place={(_, i) => [hang[0], hang[1] + TREES[i].height / 2, hang[2]]}
       />
       <InstancedLabels atlas={shrineAtlas} placements={layout.shrineLabels} fade={[40, 80]} />
 

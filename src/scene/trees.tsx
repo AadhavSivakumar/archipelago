@@ -20,10 +20,23 @@ import { publishView, select, useDistrictSelection } from '../state/selection'
 export type TreeGroup = { id: string; name: string; article: string; color: string }
 
 /** One figure of a family tree. */
-const ORB = new THREE.SphereGeometry(0.3, 40, 28)
+const ORB = new THREE.SphereGeometry(0.42, 40, 28)
 const ORB_MAT = std({ color: '#ffffff', roughness: 0.32, metalness: 0.25 }, { grain: 8, mottle: 0.05, bump: 0.1, rough: 0.1 })
 /** Lines of descent. */
 const LINEAGE_MAT = new THREE.LineBasicMaterial({ color: '#f2cf6b', transparent: true, opacity: 0.7 })
+
+const PANEL = new THREE.PlaneGeometry(1, 1)
+const PANEL_MAT = new THREE.MeshBasicMaterial({
+  color: '#0b1522',
+  transparent: true,
+  opacity: 0.9,
+  // Writes depth, and is drawn first among the transparent things, so the
+  // labels of whatever stands behind the tree are hidden rather than
+  // showing through it as a second layer of text.
+  side: THREE.DoubleSide,
+  fog: false,
+  toneMapped: false,
+})
 
 const NO_LINES = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3))
 
@@ -58,7 +71,7 @@ export function treeFigures(
     y: base[1] + node.y,
     z: base[2] + axis.z * node.x,
     color: group.color,
-    elevation: 0.26,
+    elevation: 0.16,
   }))
 }
 
@@ -95,13 +108,49 @@ export function Tree({
   }, [layout, figures])
 
   const names = useMemo<LabelPlacement[]>(
-    () => figures.map((f, i) => ({ cell: i, x: f.x, y: f.y - 0.6, z: f.z, width: 1.5 })),
+    () => figures.map((f, i) => ({ cell: i, x: f.x, y: f.y - 0.82, z: f.z, width: 2.7 })),
     [figures],
   )
   const atlas = useMemo(() => atlasFor(group, layout.nodes.map((n) => n.figure)), [group, layout])
 
+  /*
+    A dark panel behind the tree, so it is read against one steady colour
+    instead of against whatever the camera happens to see through it — a
+    tower, a hillside, the sea. Sized to the figures, set a little behind
+    them on the side away from the camera, and facing the way the tree does.
+  */
+  const backdrop = useMemo(() => {
+    if (figures.length === 0) return null
+    const ox = Math.cos(d.seaward)
+    const oz = Math.sin(d.seaward)
+    const ax = Math.sin(d.seaward)
+    const az = -Math.cos(d.seaward)
+    let lo = Infinity, hi = -Infinity, bottom = Infinity, top = -Infinity
+    let cx = 0, cz = 0
+    for (const f of figures) {
+      const along = f.x * ax + f.z * az
+      lo = Math.min(lo, along)
+      hi = Math.max(hi, along)
+      bottom = Math.min(bottom, f.y)
+      top = Math.max(top, f.y)
+      cx += f.x
+      cz += f.z
+    }
+    cx /= figures.length
+    cz /= figures.length
+    // Recentre along the tree's own axis, then step back from the camera.
+    const mid = (lo + hi) / 2
+    const offAlong = mid - (cx * ax + cz * az)
+    return {
+      position: [cx + ax * offAlong - ox * 0.9, (bottom + top) / 2 - 0.35, cz + az * offAlong - oz * 0.9] as [number, number, number],
+      scale: [hi - lo + 3.2, top - bottom + 2.9, 1] as [number, number, number],
+      rotation: [0, Math.atan2(ox, oz), 0] as [number, number, number],
+    }
+  }, [figures, d])
+
   return (
     <group userData={{ noShadow: true }}>
+      {backdrop && <mesh geometry={PANEL} material={PANEL_MAT} {...backdrop} raycast={() => null} renderOrder={-1} />}
       <lineSegments geometry={lineage} material={LINEAGE_MAT} raycast={() => null} />
       <Exhibits
         d={d}
@@ -109,8 +158,8 @@ export function Tree({
         items={figures}
         geometry={ORB}
         material={ORB_MAT}
-        labelHeight={0.72}
-        extent={2.2}
+        labelHeight={0.95}
+        extent={2.6}
         highlight="#ffffff"
         keys={keys}
         picked={picked}

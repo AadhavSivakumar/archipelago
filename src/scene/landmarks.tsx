@@ -36,6 +36,7 @@ import { BiologicalBayou } from './bayou'
 import { CelestialCay } from './cay'
 import { InventorsInlet } from './inlet'
 import { MythologicalMonument } from './mythos'
+import { TaxonomicTerraces } from './terraces'
 import { groupOf } from '../content/navigation'
 import { publishView, select, useDistrictSelection } from '../state/selection'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -1997,4 +1998,5 @@ export const LANDMARKS: Record<DistrictId, React.ComponentType<LandmarkProps>> =
   cosmos: memo(CelestialCay),
   inventions: memo(InventorsInlet),
   mythology: memo(MythologicalMonument),
+  taxonomy: memo(TaxonomicTerraces),
 }

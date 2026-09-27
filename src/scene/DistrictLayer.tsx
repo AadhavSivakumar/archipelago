@@ -53,6 +53,7 @@ const LABEL_HEIGHT: Record<DistrictId, number> = {
   cosmos: 14,
   inventions: 12,
   mythology: 20,
+  taxonomy: 11,
 }
 
 export function Districts({

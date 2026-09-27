@@ -10,6 +10,7 @@ export type DistrictId =
   | 'cosmos'
   | 'inventions'
   | 'mythology'
+  | 'taxonomy'
 
 export type District = {
   id: DistrictId
@@ -316,6 +317,24 @@ export const DISTRICTS: District[] = [
     pad: 11.5,
     padRadius: 8,
     relief: 1.8,
+  },
+  {
+    id: 'taxonomy',
+    name: 'Taxonomic Terraces',
+    blurb:
+      'Climb the ranks of classification, from domain to species, and follow a dozen living things down through all eight.',
+    color: '#8a7a4a',
+    accent: '#f2d27a',
+    /*
+      On the mainland behind the Biological Bayou: the tree of life's
+      neighbour, and the place its names are ranked.
+    */
+    x: -70,
+    z: -114,
+    seaward: 1.57,
+    pad: 6.0,
+    padRadius: 8,
+    relief: 1.4,
   },
 ]
 

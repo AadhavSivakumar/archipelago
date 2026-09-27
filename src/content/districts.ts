@@ -11,6 +11,7 @@ import { INVENTIONS } from './inventions'
 import { IDEOLOGIES } from './ideologies'
 import { CREATURES, LEGENDS } from './lore'
 import { COUNTRIES } from '../scene/worldCountries'
+import { ORGANISMS, RANKS, TAXA } from './taxonomy'
 
 /**
  * What each district is actually about.
@@ -62,6 +63,15 @@ export const CONTENT: Record<DistrictId, DistrictContent> = {
     summary: `${IDEOLOGIES.length} schools of thought, each on an islet of its own, each a family tree of ideas.`,
     topics: IDEOLOGIES.map((g) => ({ name: g.name, note: `${g.figures.length} ideas, from ${g.figures[0].name} down.` })),
     hint: 'Choose an islet to raise its tree of ideas, then any idea in it to read about it.',
+  },
+
+  taxonomy: {
+    summary: `The eight ranks of classification as eight terraces, and ${ORGANISMS.length} living things classified down all of them: where two share a taxon, their lines join.`,
+    topics: RANKS.map((rank, r) => ({
+      name: rank,
+      note: `${TAXA.filter((t) => t.rank === r).length} taxa on this terrace.`,
+    })),
+    hint: 'Choose any marker to light its line: up to its domain, and down to every species beneath it.',
   },
 
   mythology: {

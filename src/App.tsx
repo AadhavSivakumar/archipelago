@@ -141,7 +141,7 @@ export function App() {
       >
         <div className="topbar__brand">
           <h1>Archipelago</h1>
-          <p>Ten territories of knowledge.</p>
+          <p>Twelve territories of knowledge.</p>
         </div>
 
         <nav className="topbar__list" aria-label="Territories">

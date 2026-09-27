@@ -11,6 +11,7 @@ import { COSMOS } from './cosmos'
 import { INVENTIONS } from './inventions'
 import { IDEOLOGIES } from './ideologies'
 import { CREATURES, LEGENDS } from './lore'
+import { ORGANISMS, RANKS, TAXA } from './taxonomy'
 import type { Figure } from '../scene/familyTree'
 
 /**
@@ -100,6 +101,20 @@ export const NAV: Record<DistrictId, NavConfig> = {
     groupsSelectable: false,
   },
   ideology: { groups: treeGroups(IDEOLOGIES, 'from'), groupsSelectable: true },
+  taxonomy: {
+    groups: RANKS.map((rank, r) => ({
+      name: rank,
+      color: ['#f2cf6b', '#e8a06a', '#e07a7a', '#d98ac9', '#a48ae0', '#7aa0e8', '#6fc4d0', '#86dda3'][r],
+      items: TAXA.map((t, i) => ({ t, i }))
+        .filter(({ t }) => t.rank === r)
+        .map(({ t, i }) => ({
+          name: r === RANKS.length - 1 ? ORGANISMS[t.members[0]].common : t.name,
+          note: r === RANKS.length - 1 ? t.name : `${t.members.length} of ${ORGANISMS.length}`,
+          index: i,
+        })),
+    })),
+    groupsSelectable: false,
+  },
   mythology: {
     groups: [
       ...treeGroups(

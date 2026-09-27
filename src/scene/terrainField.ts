@@ -256,7 +256,7 @@ const PADS: Pad[] = [
   mainland but at its edge, where the water is.
 */
 const MAINLAND_DISTRICTS = new Set<DistrictId>([
-  'anthropology', 'science', 'life', 'inventions', 'mythology', 'history', 'geography', 'art',
+  'anthropology', 'science', 'life', 'inventions', 'mythology', 'history', 'geography', 'art', 'taxonomy',
 ])
 
 /**
